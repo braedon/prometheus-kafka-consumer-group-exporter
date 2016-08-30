@@ -109,19 +109,20 @@ def main():
                 value=message.offset
             )
 
-            key = parse_key(message.key)
-            if key:
-                value = parse_value(message.value)
+            if message.key and message.value:
+              key = parse_key(message.key)
+              if key:
+                  value = parse_value(message.value)
 
-                update_gauge(
-                    metric_name='consumer_group_offset',
-                    label_dict={
-                        'group': key[1],
-                        'topic': key[2],
-                        'partition': key[3]
-                    },
-                    value=value[1]
-                )
+                  update_gauge(
+                      metric_name='consumer_group_offset',
+                      label_dict={
+                          'group': key[1],
+                          'topic': key[2],
+                          'partition': key[3]
+                      },
+                      value=value[1]
+                  )
 
     except KeyboardInterrupt:
         pass
