@@ -2,10 +2,11 @@ import argparse
 import logging
 
 from kafka import KafkaConsumer, KafkaProducer
-from prometheus_client import start_http_server, Gauge
+from prometheus_client import start_http_server, Gauge, Counter
 from struct import unpack_from, unpack
 
 gauges = {}
+counters = {}
 
 def update_gauge(metric_name, label_dict, value):
     label_keys = tuple(label_dict.keys())
@@ -20,6 +21,20 @@ def update_gauge(metric_name, label_dict, value):
         gauge.labels(*label_values).set(value)
     else:
         gauge.set(value)
+
+def increment_counter(metric_name, label_dict):
+    label_keys = tuple(label_dict.keys())
+    label_values = tuple(label_dict.values())
+
+    if metric_name not in counters:
+        counters[metric_name] = Counter(metric_name, '', label_keys)
+
+    counter = counters[metric_name]
+
+    if label_values:
+        counter.labels(*label_values).inc()
+    else:
+        counter.inc()
 
 def main():
     parser = argparse.ArgumentParser(description='Export Kafka consumer offsets to Prometheus.')
@@ -100,7 +115,6 @@ def main():
 
     try:
         for message in consumer:
-
             update_gauge(
                 metric_name='exporter_offset',
                 label_dict={
@@ -122,6 +136,15 @@ def main():
                           'partition': key[3]
                       },
                       value=value[1]
+                  )
+
+                  increment_counter(
+                      metric_name='consumer_group_commits',
+                      label_dict={
+                          'group': key[1],
+                          'topic': key[2],
+                          'partition': key[3]
+                      }
                   )
 
     except KeyboardInterrupt:
