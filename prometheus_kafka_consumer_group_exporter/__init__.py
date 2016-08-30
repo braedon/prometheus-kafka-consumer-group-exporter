@@ -27,6 +27,10 @@ def main():
         help='addresses of brokers in a Kafka cluster to read the offsets topic of. Brokers should be separated by commas e.g. broker1,broker2. Ports can be provided if non-standard (9092) e.g. brokers1:9999 (default: localhost)')
     parser.add_argument('-p', '--port', type=int, default=8080,
         help='port to serve the metrics endpoint on. (default: 8080)')
+    parser.add_argument('-g', '--consumer-group', default=None,
+        help='the consumer group to use. If not specified, no group is used, and offsets are not committed.')
+    parser.add_argument('-s', '--from-start', action='store_true',
+        help='start from the beginning of the topic if no offset has been previously committed. If not set only new messages will be consumed.')
     parser.add_argument('-v', '--verbose', action='store_true',
         help='turn on verbose logging.')
     args = parser.parse_args()
@@ -42,9 +46,9 @@ def main():
 
     consumer = KafkaConsumer(
         '__consumer_offsets',
-         bootstrap_servers=bootstrap_brokers,
-         auto_offset_reset='earliest',
-         group_id=None
+        bootstrap_servers=bootstrap_brokers,
+        auto_offset_reset='earliest' if args.from_start else 'latest',
+        group_id=args.consumer_group
     )
 
     logging.info('Starting server...')
