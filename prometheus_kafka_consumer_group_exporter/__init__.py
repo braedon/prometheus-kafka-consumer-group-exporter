@@ -5,6 +5,8 @@ from kafka import KafkaConsumer, KafkaProducer
 from prometheus_client import start_http_server, Gauge, Counter
 from struct import unpack_from, unpack
 
+METRIC_PREFIX = 'kafka_consumer_group_'
+
 gauges = {}
 counters = {}
 
@@ -116,7 +118,7 @@ def main():
     try:
         for message in consumer:
             update_gauge(
-                metric_name='exporter_offset',
+                metric_name=METRIC_PREFIX+'exporter_offset',
                 label_dict={
                     'partition': message.partition
                 },
@@ -129,7 +131,7 @@ def main():
                   value = parse_value(message.value)
 
                   update_gauge(
-                      metric_name='consumer_group_offset',
+                      metric_name=METRIC_PREFIX+'offset',
                       label_dict={
                           'group': key[1],
                           'topic': key[2],
@@ -139,7 +141,7 @@ def main():
                   )
 
                   increment_counter(
-                      metric_name='consumer_group_commits',
+                      metric_name=METRIC_PREFIX+'commits',
                       label_dict={
                           'group': key[1],
                           'topic': key[2],
