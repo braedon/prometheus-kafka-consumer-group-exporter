@@ -2,6 +2,7 @@ import argparse
 import logging
 
 from kafka import KafkaConsumer
+from logstash_formatter import LogstashFormatterV1
 from prometheus_client import start_http_server, Gauge, Counter
 from struct import unpack_from
 
@@ -64,12 +65,22 @@ def main():
         ' previously committed.' +
         'If not set only new messages will be consumed.')
     parser.add_argument(
+        '-j', '--json-logging', action='store_true',
+        help='Turn on json logging.')
+    parser.add_argument(
         '-v', '--verbose', action='store_true',
         help='Turn on verbose logging.')
     args = parser.parse_args()
 
+    log_handler = logging.StreamHandler()
+    log_format = '[%(asctime)s] %(name)s.%(levelname)s %(threadName)s %(message)s'
+    formatter = LogstashFormatterV1() \
+        if args.json_logging \
+        else logging.Formatter(log_format)
+    log_handler.setFormatter(formatter)
+
     logging.basicConfig(
-        format='[%(asctime)s] %(name)s.%(levelname)s %(threadName)s %(message)s',
+        handlers=[log_handler],
         level=logging.DEBUG if args.verbose else logging.INFO
     )
     logging.captureWarnings(True)
