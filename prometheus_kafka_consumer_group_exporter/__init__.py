@@ -1,5 +1,7 @@
 import argparse
 import logging
+import signal
+import sys
 
 from kafka import KafkaConsumer
 from logstash_formatter import LogstashFormatterV1
@@ -42,7 +44,18 @@ def increment_counter(metric_name, label_dict):
         counter.inc()
 
 
+def shutdown():
+    logging.info('Shutting down')
+    sys.exit(1)
+
+
+def signal_handler(signum, frame):
+    shutdown()
+
+
 def main():
+    signal.signal(signal.SIGTERM, signal_handler)
+
     parser = argparse.ArgumentParser(
         description='Export Kafka consumer offsets to Prometheus.')
     parser.add_argument(
@@ -179,4 +192,4 @@ def main():
     except KeyboardInterrupt:
         pass
 
-    logging.info('Shutting down')
+    shutdown()
