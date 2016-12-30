@@ -1,14 +1,15 @@
 import argparse
 import logging
 
-from kafka import KafkaConsumer, KafkaProducer
+from kafka import KafkaConsumer
 from prometheus_client import start_http_server, Gauge, Counter
-from struct import unpack_from, unpack
+from struct import unpack_from
 
 METRIC_PREFIX = 'kafka_consumer_group_'
 
 gauges = {}
 counters = {}
+
 
 def update_gauge(metric_name, label_dict, value):
     label_keys = tuple(label_dict.keys())
@@ -24,6 +25,7 @@ def update_gauge(metric_name, label_dict, value):
     else:
         gauge.set(value)
 
+
 def increment_counter(metric_name, label_dict):
     label_keys = tuple(label_dict.keys())
     label_values = tuple(label_dict.values())
@@ -38,18 +40,32 @@ def increment_counter(metric_name, label_dict):
     else:
         counter.inc()
 
+
 def main():
-    parser = argparse.ArgumentParser(description='Export Kafka consumer offsets to Prometheus.')
-    parser.add_argument('-b', '--bootstrap-brokers', default='localhost',
-        help='addresses of brokers in a Kafka cluster to read the offsets topic of. Brokers should be separated by commas e.g. broker1,broker2. Ports can be provided if non-standard (9092) e.g. brokers1:9999 (default: localhost)')
-    parser.add_argument('-p', '--port', type=int, default=8080,
-        help='port to serve the metrics endpoint on. (default: 8080)')
-    parser.add_argument('-g', '--consumer-group', default=None,
-        help='the consumer group to use. If not specified, no group is used, and offsets are not committed.')
-    parser.add_argument('-s', '--from-start', action='store_true',
-        help='start from the beginning of the topic if no offset has been previously committed. If not set only new messages will be consumed.')
-    parser.add_argument('-v', '--verbose', action='store_true',
-        help='turn on verbose logging.')
+    parser = argparse.ArgumentParser(
+        description='Export Kafka consumer offsets to Prometheus.')
+    parser.add_argument(
+        '-b', '--bootstrap-brokers', default='localhost',
+        help='Addresses of brokers in a Kafka cluster to read the offsets' +
+        ' topic of.' +
+        ' Brokers should be separated by commas e.g. broker1,broker2.' +
+        ' Ports can be provided if non-standard (9092) e.g. brokers1:9999.' +
+        ' (default: localhost)')
+    parser.add_argument(
+        '-p', '--port', type=int, default=8080,
+        help='Port to serve the metrics endpoint on. (default: 8080)')
+    parser.add_argument(
+        '-g', '--consumer-group', default=None,
+        help='The consumer group to use.' +
+        ' If not specified, no group is used, and offsets are not committed.')
+    parser.add_argument(
+        '-s', '--from-start', action='store_true',
+        help='Start from the beginning of the topic if no offset has been' +
+        ' previously committed.' +
+        'If not set only new messages will be consumed.')
+    parser.add_argument(
+        '-v', '--verbose', action='store_true',
+        help='Turn on verbose logging.')
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -118,7 +134,7 @@ def main():
     try:
         for message in consumer:
             update_gauge(
-                metric_name=METRIC_PREFIX+'exporter_offset',
+                metric_name=METRIC_PREFIX + 'exporter_offset',
                 label_dict={
                     'partition': message.partition
                 },
@@ -126,28 +142,28 @@ def main():
             )
 
             if message.key and message.value:
-              key = parse_key(message.key)
-              if key:
-                  value = parse_value(message.value)
+                key = parse_key(message.key)
+                if key:
+                    value = parse_value(message.value)
 
-                  update_gauge(
-                      metric_name=METRIC_PREFIX+'offset',
-                      label_dict={
-                          'group': key[1],
-                          'topic': key[2],
-                          'partition': key[3]
-                      },
-                      value=value[1]
-                  )
+                    update_gauge(
+                        metric_name=METRIC_PREFIX + 'offset',
+                        label_dict={
+                            'group': key[1],
+                            'topic': key[2],
+                            'partition': key[3]
+                        },
+                        value=value[1]
+                    )
 
-                  increment_counter(
-                      metric_name=METRIC_PREFIX+'commits',
-                      label_dict={
-                          'group': key[1],
-                          'topic': key[2],
-                          'partition': key[3]
-                      }
-                  )
+                    increment_counter(
+                        metric_name=METRIC_PREFIX + 'commits',
+                        label_dict={
+                            'group': key[1],
+                            'topic': key[2],
+                            'partition': key[3]
+                        }
+                    )
 
     except KeyboardInterrupt:
         pass
