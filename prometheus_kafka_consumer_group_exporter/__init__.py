@@ -60,8 +60,7 @@ def main():
         description='Export Kafka consumer offsets to Prometheus.')
     parser.add_argument(
         '-b', '--bootstrap-brokers', default='localhost',
-        help='Addresses of brokers in a Kafka cluster to read the offsets' +
-        ' topic of.' +
+        help='Addresses of brokers in a Kafka cluster to talk to.' +
         ' Brokers should be separated by commas e.g. broker1,broker2.' +
         ' Ports can be provided if non-standard (9092) e.g. brokers1:9999.' +
         ' (default: localhost)')
@@ -69,14 +68,8 @@ def main():
         '-p', '--port', type=int, default=8080,
         help='Port to serve the metrics endpoint on. (default: 8080)')
     parser.add_argument(
-        '-g', '--consumer-group', default=None,
-        help='The consumer group to use.' +
-        ' If not specified, no group is used, and offsets are not committed.')
-    parser.add_argument(
         '-s', '--from-start', action='store_true',
-        help='Start from the beginning of the topic if no offset has been' +
-        ' previously committed.' +
-        'If not set only new messages will be consumed.')
+        help='Start from the beginning of the `__consumer_offsets` topic.')
     parser.add_argument(
         '-j', '--json-logging', action='store_true',
         help='Turn on json logging.')
@@ -105,7 +98,7 @@ def main():
         '__consumer_offsets',
         bootstrap_servers=bootstrap_brokers,
         auto_offset_reset='earliest' if args.from_start else 'latest',
-        group_id=args.consumer_group
+        group_id=None
     )
 
     logging.info('Starting server...')
