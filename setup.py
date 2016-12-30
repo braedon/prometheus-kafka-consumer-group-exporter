@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='prometheus-kafka-consumer-group-exporter',
-    version='0.1.0.dev1',
+    version='0.1.0',
     description='Kafka consumer group Prometheus exporter',
     url='https://github.com/Braedon/prometheus-kafka-consumer-group-exporter',
     author='Braedon Vickers',
