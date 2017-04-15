@@ -65,8 +65,8 @@ def main():
         ' Ports can be provided if non-standard (9092) e.g. brokers1:9999.' +
         ' (default: localhost)')
     parser.add_argument(
-        '-p', '--port', type=int, default=8080,
-        help='Port to serve the metrics endpoint on. (default: 8080)')
+        '-p', '--port', type=int, default=9208,
+        help='Port to serve the metrics endpoint on. (default: 9208)')
     parser.add_argument(
         '-s', '--from-start', action='store_true',
         help='Start from the beginning of the `__consumer_offsets` topic.')

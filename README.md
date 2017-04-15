@@ -14,7 +14,7 @@ Note that you may need to add the start script location (see pip output) to your
 # Usage
 Once installed, you can run the exporter with the `prometheus-kafka-consumer-group-exporter` command.
 
-By default, it will bind to port 8080 and connect to Kafka on `localhost:9092`. You can change these defaults as required by passing in options:
+By default, it will bind to port 9208 and connect to Kafka on `localhost:9092`. You can change these defaults as required by passing in options:
 ```
 > prometheus-kafka-consumer-group-exporter -p <port> -b <kafka nodes>
 ```
@@ -25,10 +25,10 @@ Docker images for released versions can be found on Docker Hub (note that no `la
 ```
 > sudo docker pull braedon/prometheus-kafka-consumer-group-exporter:<version>
 ```
-To run a container successfully, you will need map container port 8080 to a port on the host. Any options placed after the image name (`prometheus-kafka-consumer-group-exporter`) will be passed to the process inside the container. For example, you will need to use this to configure the kafka node(s) using `-b`.
+To run a container successfully, you will need map container port 9208 to a port on the host. Any options placed after the image name (`prometheus-kafka-consumer-group-exporter`) will be passed to the process inside the container. For example, you will need to use this to configure the kafka node(s) using `-b`.
 ```
 > sudo docker run --rm --name exporter \
-    -p <host port>:8080 \
+    -p <host port>:9208 \
     braedon/prometheus-kafka-consumer-group-exporter:<version> -b <kafka nodes>
 ```
 
