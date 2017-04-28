@@ -74,6 +74,9 @@ def main():
         '-j', '--json-logging', action='store_true',
         help='Turn on json logging.')
     parser.add_argument(
+        '-l', '--label', default='', nargs='*',
+        help='Set a label on all exported metrics.')
+    parser.add_argument(
         '-v', '--verbose', action='store_true',
         help='Turn on verbose logging.')
     args = parser.parse_args()
@@ -90,6 +93,14 @@ def main():
         level=logging.DEBUG if args.verbose else logging.INFO
     )
     logging.captureWarnings(True)
+
+    labels = {}
+    for label in args.labels:
+        parts = label.split("=", 1)
+        if len(parts) > 1:
+            labels[parts[0]] = parts[1]
+        else:
+            labels[parts[0]] = ""
 
     port = args.port
     bootstrap_brokers = args.bootstrap_brokers.split(',')
@@ -152,9 +163,9 @@ def main():
         for message in consumer:
             update_gauge(
                 metric_name=METRIC_PREFIX + 'exporter_offset',
-                label_dict={
-                    'partition': message.partition
-                },
+                label_dict=dict(labels,
+                    partition=message.partition,
+                ),
                 value=message.offset
             )
 
@@ -165,21 +176,21 @@ def main():
 
                     update_gauge(
                         metric_name=METRIC_PREFIX + 'offset',
-                        label_dict={
-                            'group': key[1],
-                            'topic': key[2],
-                            'partition': key[3]
-                        },
+                        label_dict=dict(labels,
+                            group=key[1],
+                            topic=key[2],
+                            partition=key[3]
+                        ),
                         value=value[1]
                     )
 
                     increment_counter(
                         metric_name=METRIC_PREFIX + 'commits',
-                        label_dict={
-                            'group': key[1],
-                            'topic': key[2],
-                            'partition': key[3]
-                        }
+                        label_dict=dict(labels,
+                            group=key[1],
+                            topic=key[2],
+                            partition=key[3]
+                        )
                     )
 
     except KeyboardInterrupt:
