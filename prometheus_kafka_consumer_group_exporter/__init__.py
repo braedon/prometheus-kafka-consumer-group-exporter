@@ -2,8 +2,12 @@ import argparse
 import logging
 import signal
 import sys
+import time
 
+from functools import partial
 from kafka import KafkaConsumer
+from kafka.protocol.metadata import MetadataRequest
+from kafka.protocol.offset import OffsetRequest, OffsetResetStrategy
 from jog import JogFormatter
 from prometheus_client import start_http_server, Gauge, Counter
 from struct import unpack_from
@@ -12,6 +16,8 @@ METRIC_PREFIX = 'kafka_consumer_group_'
 
 gauges = {}
 counters = {}
+topics = {}
+highwater = {}
 
 
 def update_gauge(metric_name, label_dict, value):
@@ -98,8 +104,10 @@ def main():
         '__consumer_offsets',
         bootstrap_servers=bootstrap_brokers,
         auto_offset_reset='earliest' if args.from_start else 'latest',
-        group_id=None
+        group_id=None,
+        consumer_timeout_ms=500
     )
+    client = consumer._client
 
     logging.info('Starting server...')
     start_http_server(port)
@@ -148,39 +156,120 @@ def main():
             (expire_timestamp, remaining_key) = read_long_long(remaining_key)
             return (version, offset, metadata, commit_timestamp, expire_timestamp)
 
+    def update_topics(api_version, metadata):
+        logging.info('Received topics and partition assignments')
+        # TODO: Check error codes
+        global topics
+        if api_version == 0:
+            topics = {t[1]: {p[1]: p[2]
+                             for p in t[2]}
+                      for t in metadata.topics}
+        elif api_version == 1:
+            topics = {t[1]: {p[1]: p[2]
+                             for p in t[3]}
+                      for t in metadata.topics}
+
+    def update_highwater(offsets):
+        logging.info('Received high-water marks')
+        # TODO: Check error codes
+        global highwater
+        for topic, partitions in offsets.topics:
+            if topic not in highwater:
+                highwater[topic] = {}
+            for partition, error_code, offsets in partitions:
+                highwater[topic][partition] = offsets[0]
+                update_gauge(
+                    metric_name=METRIC_PREFIX + 'highwater',
+                    label_dict={
+                        'topic': topic,
+                        'partition': partition
+                    },
+                    value=offsets[0]
+                )
+
+    def fetch_topics(this_time):
+        logging.info('Requesting topics and partition assignments')
+        next_time = this_time + 30
+        try:
+            api_version = 0 if client.config['api_version'] < (0, 10) else 1
+            request = MetadataRequest[api_version](None)
+            node = client.least_loaded_node()
+            f = client.send(node, request)
+            f.add_callback(update_topics, api_version)
+        except Exception:
+            logging.exception('Error requesting topics and partition assignments')
+        finally:
+            client.schedule(partial(fetch_topics, next_time), next_time)
+
+    def fetch_highwater(this_time):
+        logging.info('Requesting high-water marks')
+        next_time = this_time + 10
+        try:
+            global topics
+            if topics:
+                nodes = {}
+                for topic, partition_map in topics.items():
+                    for partition, leader in partition_map.items():
+                        if leader not in nodes:
+                            nodes[leader] = {}
+                        if topic not in nodes[leader]:
+                            nodes[leader][topic] = []
+                        nodes[leader][topic].append(partition)
+
+                for node, topic_map in nodes.items():
+                    for topic, partitions in topic_map.items():
+                        request = OffsetRequest[0](
+                            -1,
+                            [(topic,
+                              [(partition, OffsetResetStrategy.LATEST, 1)
+                               for partition in partitions])]
+                        )
+                        f = client.send(node, request)
+                        f.add_callback(update_highwater)
+        except Exception:
+            logging.exception('Error requesting high-water marks')
+        finally:
+            client.schedule(partial(fetch_highwater, next_time), next_time)
+
+    now_time = time.time()
+
+    fetch_topics(now_time)
+    fetch_highwater(now_time)
+
     try:
-        for message in consumer:
-            update_gauge(
-                metric_name=METRIC_PREFIX + 'exporter_offset',
-                label_dict={
-                    'partition': message.partition
-                },
-                value=message.offset
-            )
+        while True:
+            for message in consumer:
+                update_gauge(
+                    metric_name=METRIC_PREFIX + 'exporter_offset',
+                    label_dict={
+                        'partition': message.partition
+                    },
+                    value=message.offset
+                )
 
-            if message.key and message.value:
-                key = parse_key(message.key)
-                if key:
-                    value = parse_value(message.value)
+                if message.key and message.value:
+                    key = parse_key(message.key)
+                    if key:
+                        value = parse_value(message.value)
 
-                    update_gauge(
-                        metric_name=METRIC_PREFIX + 'offset',
-                        label_dict={
-                            'group': key[1],
-                            'topic': key[2],
-                            'partition': key[3]
-                        },
-                        value=value[1]
-                    )
+                        update_gauge(
+                            metric_name=METRIC_PREFIX + 'offset',
+                            label_dict={
+                                'group': key[1],
+                                'topic': key[2],
+                                'partition': key[3]
+                            },
+                            value=value[1]
+                        )
 
-                    increment_counter(
-                        metric_name=METRIC_PREFIX + 'commits',
-                        label_dict={
-                            'group': key[1],
-                            'topic': key[2],
-                            'partition': key[3]
-                        }
-                    )
+                        increment_counter(
+                            metric_name=METRIC_PREFIX + 'commits',
+                            label_dict={
+                                'group': key[1],
+                                'topic': key[2],
+                                'partition': key[3]
+                            }
+                        )
 
     except KeyboardInterrupt:
         pass
