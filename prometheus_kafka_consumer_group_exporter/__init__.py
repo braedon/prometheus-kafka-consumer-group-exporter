@@ -175,8 +175,14 @@ def main():
         global highwater
         for topic, partitions in offsets.topics:
             if topic not in highwater:
+                logging.debug('Received high-water marks for new topic %(topic)s',
+                              {'topic': topic})
+
                 highwater[topic] = {}
             for partition, error_code, offsets in partitions:
+                logging.debug('Received high-water marks for partition %(partition)s of topic %(topic)s',
+                              {'partition': partition, 'topic': topic})
+
                 highwater[topic][partition] = offsets[0]
                 update_gauge(
                     metric_name=METRIC_PREFIX + 'highwater',
@@ -189,11 +195,16 @@ def main():
 
     def fetch_topics(this_time):
         logging.info('Requesting topics and partition assignments')
+
         next_time = this_time + 30
         try:
+            node = client.least_loaded_node()
+
+            logging.debug('Requesting topics and partition assignments from %(node)s',
+                          {'node': node})
+
             api_version = 0 if client.config['api_version'] < (0, 10) else 1
             request = MetadataRequest[api_version](None)
-            node = client.least_loaded_node()
             f = client.send(node, request)
             f.add_callback(update_topics, api_version)
         except Exception:
@@ -217,15 +228,18 @@ def main():
                         nodes[leader][topic].append(partition)
 
                 for node, topic_map in nodes.items():
-                    for topic, partitions in topic_map.items():
-                        request = OffsetRequest[0](
-                            -1,
-                            [(topic,
-                              [(partition, OffsetResetStrategy.LATEST, 1)
-                               for partition in partitions])]
-                        )
-                        f = client.send(node, request)
-                        f.add_callback(update_highwater)
+                    logging.debug('Requesting high-water marks from %(node)s',
+                                  {'topic': topic, 'node': node})
+
+                    request = OffsetRequest[0](
+                        -1,
+                        [(topic,
+                          [(partition, OffsetResetStrategy.LATEST, 1)
+                           for partition in partitions])
+                         for topic, partitions in topic_map.items()]
+                    )
+                    f = client.send(node, request)
+                    f.add_callback(update_highwater)
         except Exception:
             logging.exception('Error requesting high-water marks')
         finally:
