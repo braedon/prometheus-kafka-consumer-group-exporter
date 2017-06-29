@@ -21,7 +21,7 @@ setup(
     packages=find_packages(),
     install_requires=[
         'kafka-python',
-        'logstash_formatter',
+        'jog',
         'prometheus-client'
     ],
     entry_points={
