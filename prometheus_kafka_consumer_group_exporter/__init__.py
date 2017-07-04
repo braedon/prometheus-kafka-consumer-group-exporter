@@ -74,8 +74,11 @@ def main():
         '-j', '--json-logging', action='store_true',
         help='Turn on json logging.')
     parser.add_argument(
+        '--log-level', default='INFO', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+        help='detail level to log. (default: INFO)')
+    parser.add_argument(
         '-v', '--verbose', action='store_true',
-        help='Turn on verbose logging.')
+        help='turn on verbose (DEBUG) logging. Overrides --log-level.')
     args = parser.parse_args()
 
     log_handler = logging.StreamHandler()
@@ -85,9 +88,10 @@ def main():
         else logging.Formatter(log_format)
     log_handler.setFormatter(formatter)
 
+    log_level = getattr(logging, args.log_level)
     logging.basicConfig(
         handlers=[log_handler],
-        level=logging.DEBUG if args.verbose else logging.INFO
+        level=logging.DEBUG if args.verbose else log_level
     )
     logging.captureWarnings(True)
 
