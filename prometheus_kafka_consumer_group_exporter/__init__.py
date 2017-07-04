@@ -185,7 +185,7 @@ def main():
 
                 highwater[topic][partition] = offsets[0]
                 update_gauge(
-                    metric_name=METRIC_PREFIX + 'highwater',
+                    metric_name='kafka_topic_highwater',
                     label_dict={
                         'topic': topic,
                         'partition': partition
