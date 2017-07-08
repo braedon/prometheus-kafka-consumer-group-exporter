@@ -77,6 +77,12 @@ def main():
         '-s', '--from-start', action='store_true',
         help='Start from the beginning of the `__consumer_offsets` topic.')
     parser.add_argument(
+        '--topic-interval', type=float, default=30.0,
+        help='How often to refresh topic information, in seconds. (default: 30)')
+    parser.add_argument(
+        '--high-water-interval', type=float, default=10.0,
+        help='How often to refresh high-water information, in seconds. (default: 10)')
+    parser.add_argument(
         '-j', '--json-logging', action='store_true',
         help='Turn on json logging.')
     parser.add_argument(
@@ -108,6 +114,9 @@ def main():
         consumer_timeout_ms=500
     )
     client = consumer._client
+
+    topic_interval = args.topic_interval
+    high_water_interval = args.high_water_interval
 
     logging.info('Starting server...')
     start_http_server(port)
@@ -196,7 +205,7 @@ def main():
     def fetch_topics(this_time):
         logging.info('Requesting topics and partition assignments')
 
-        next_time = this_time + 30
+        next_time = this_time + topic_interval
         try:
             node = client.least_loaded_node()
 
@@ -214,7 +223,7 @@ def main():
 
     def fetch_highwater(this_time):
         logging.info('Requesting high-water marks')
-        next_time = this_time + 10
+        next_time = this_time + high_water_interval
         try:
             global topics
             if topics:
