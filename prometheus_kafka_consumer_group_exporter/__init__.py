@@ -1,10 +1,11 @@
 import argparse
+import javaproperties
 import logging
 import signal
 import sys
 
-from kafka import KafkaConsumer
 from jog import JogFormatter
+from kafka import KafkaConsumer
 from prometheus_client import start_http_server, Gauge, Counter
 from struct import unpack_from
 
@@ -71,6 +72,9 @@ def main():
         '-s', '--from-start', action='store_true',
         help='Start from the beginning of the `__consumer_offsets` topic.')
     parser.add_argument(
+        '--consumer-config', action='append', default=[],
+        help='Provide additional Kafka consumer config as a consumer.properties file. Multiple files will be merged, later files having precedence.')
+    parser.add_argument(
         '-j', '--json-logging', action='store_true',
         help='Turn on json logging.')
     parser.add_argument(
@@ -96,13 +100,28 @@ def main():
     logging.captureWarnings(True)
 
     port = args.port
-    bootstrap_brokers = args.bootstrap_brokers.split(',')
+
+    consumer_config = {
+        'bootstrap_servers': 'localhost',
+        'auto_offset_reset': 'latest',
+        'group_id': None
+    }
+
+    for filename in args.consumer_config:
+        with open(filename) as f:
+            raw_config = javaproperties.load(f)
+            converted_config = {k.replace('.', '_'): v for k, v in raw_config.items()}
+            consumer_config.update(converted_config)
+
+    if args.bootstrap_brokers:
+        consumer_config['bootstrap_servers'] = args.bootstrap_brokers.split(',')
+
+    if args.from_start:
+        consumer_config['auto_offset_reset'] = 'earliest'
 
     consumer = KafkaConsumer(
         '__consumer_offsets',
-        bootstrap_servers=bootstrap_brokers,
-        auto_offset_reset='earliest' if args.from_start else 'latest',
-        group_id=None
+        **consumer_config
     )
 
     logging.info('Starting server...')
