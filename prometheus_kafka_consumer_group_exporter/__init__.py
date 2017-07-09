@@ -19,7 +19,6 @@ METRIC_PREFIX = 'kafka_consumer_group_'
 gauges = {}
 counters = {}
 topics = {}
-highwater = {}
 
 
 def update_gauge(metric_name, label_dict, value):
@@ -219,14 +218,7 @@ def main():
     def update_highwater(offsets):
         logging.info('Received high-water marks')
 
-        global highwater
-
         for topic, partitions in offsets.topics:
-            if topic not in highwater:
-                logging.debug('Received high-water marks for new topic %(topic)s',
-                              {'topic': topic})
-
-                highwater[topic] = {}
             for partition, error_code, offsets in partitions:
                 if error_code:
                     error = Errors.for_code(error_code)((partition, error_code, offsets))
@@ -236,7 +228,6 @@ def main():
                     logging.debug('Received high-water marks for partition %(partition)s of topic %(topic)s',
                                   {'partition': partition, 'topic': topic})
 
-                    highwater[topic][partition] = offsets[0]
                     update_gauge(
                         metric_name='kafka_topic_highwater',
                         label_dict={
