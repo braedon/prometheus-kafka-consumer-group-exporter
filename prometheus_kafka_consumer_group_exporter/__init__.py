@@ -1,4 +1,5 @@
 import argparse
+import javaproperties
 import logging
 import signal
 import sys
@@ -7,10 +8,10 @@ import time
 import kafka.errors as Errors
 
 from functools import partial
+from jog import JogFormatter
 from kafka import KafkaConsumer
 from kafka.protocol.metadata import MetadataRequest
 from kafka.protocol.offset import OffsetRequest, OffsetResetStrategy
-from jog import JogFormatter
 from prometheus_client import start_http_server, Gauge, Counter
 from struct import unpack_from
 
@@ -84,11 +85,17 @@ def main():
         '--high-water-interval', type=float, default=10.0,
         help='How often to refresh high-water information, in seconds. (default: 10)')
     parser.add_argument(
+        '--consumer-config', action='append', default=[],
+        help='Provide additional Kafka consumer config as a consumer.properties file. Multiple files will be merged, later files having precedence.')
+    parser.add_argument(
         '-j', '--json-logging', action='store_true',
         help='Turn on json logging.')
     parser.add_argument(
+        '--log-level', default='INFO', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+        help='detail level to log. (default: INFO)')
+    parser.add_argument(
         '-v', '--verbose', action='store_true',
-        help='Turn on verbose logging.')
+        help='turn on verbose (DEBUG) logging. Overrides --log-level.')
     args = parser.parse_args()
 
     log_handler = logging.StreamHandler()
@@ -98,21 +105,37 @@ def main():
         else logging.Formatter(log_format)
     log_handler.setFormatter(formatter)
 
+    log_level = getattr(logging, args.log_level)
     logging.basicConfig(
         handlers=[log_handler],
-        level=logging.DEBUG if args.verbose else logging.INFO
+        level=logging.DEBUG if args.verbose else log_level
     )
     logging.captureWarnings(True)
 
     port = args.port
-    bootstrap_brokers = args.bootstrap_brokers.split(',')
+
+    consumer_config = {
+        'bootstrap_servers': 'localhost',
+        'auto_offset_reset': 'latest',
+        'group_id': None,
+        'consumer_timeout_ms': 500
+    }
+
+    for filename in args.consumer_config:
+        with open(filename) as f:
+            raw_config = javaproperties.load(f)
+            converted_config = {k.replace('.', '_'): v for k, v in raw_config.items()}
+            consumer_config.update(converted_config)
+
+    if args.bootstrap_brokers:
+        consumer_config['bootstrap_servers'] = args.bootstrap_brokers.split(',')
+
+    if args.from_start:
+        consumer_config['auto_offset_reset'] = 'earliest'
 
     consumer = KafkaConsumer(
         '__consumer_offsets',
-        bootstrap_servers=bootstrap_brokers,
-        auto_offset_reset='earliest' if args.from_start else 'latest',
-        group_id=None,
-        consumer_timeout_ms=500
+        **consumer_config
     )
     client = consumer._client
 

@@ -22,7 +22,8 @@ setup(
     install_requires=[
         'kafka-python',
         'jog',
-        'prometheus-client'
+        'prometheus-client',
+        'javaproperties'
     ],
     entry_points={
         'console_scripts': [

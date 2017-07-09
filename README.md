@@ -14,11 +14,24 @@ Note that you may need to add the start script location (see pip output) to your
 # Usage
 Once installed, you can run the exporter with the `prometheus-kafka-consumer-group-exporter` command.
 
-By default, it will bind to port 9208 and connect to Kafka on `localhost:9092`. You can change these defaults as required by passing in options:
+By default, it will bind to port 9208 and connect to Kafka on `localhost:9092`. You can change these defaults as required by passing in arguments:
 ```
 > prometheus-kafka-consumer-group-exporter -p <port> -b <kafka nodes>
 ```
-Run with the `-h` flag to see details on all the available options.
+Run with the `-h` flag to see details on all the available arguments.
+
+# Kafka Config
+If you need to set Kafka consumer configuration that isn't supported by command line arguments, you can provided a standard Kafka consumer properties file:
+```
+> prometheus-kafka-consumer-group-exporter --consumer-config consumer.properties
+```
+See the [Kafka docs](https://kafka.apache.org/documentation/#newconsumerconfigs) for details on consumer properties. However, as the exporter doesn't use the official consumer implementation, all properties may not be supported. Check the [kafka-python docs](https://kafka-python.readthedocs.io/en/master/apidoc/KafkaConsumer.html#kafkaconsumer) if you run into problems.
+
+You can provide multiple files if that's helpful - they will be merged together, with later files taking precedence:
+```
+> prometheus-kafka-consumer-group-exporter --consumer-config consumer.properties --consumer-config another-consumer.properties
+```
+Note that where a command line argument relates to a consumer property (e.g. `--bootstrap-brokers` sets `bootstrap.servers`) a value provided via that argument will override any value for that property in a properties file. The argument default will only be used if the property isn't provided in either a file or an argument.
 
 # Docker
 Docker images for released versions can be found on Docker Hub (note that no `latest` version is provided):
