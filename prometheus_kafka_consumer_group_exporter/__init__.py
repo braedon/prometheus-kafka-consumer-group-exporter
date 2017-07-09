@@ -4,6 +4,8 @@ import signal
 import sys
 import time
 
+import kafka.errors as Errors
+
 from functools import partial
 from kafka import KafkaConsumer
 from kafka.protocol.metadata import MetadataRequest
@@ -167,21 +169,58 @@ def main():
 
     def update_topics(api_version, metadata):
         logging.info('Received topics and partition assignments')
-        # TODO: Check error codes
+
         global topics
+
         if api_version == 0:
-            topics = {t[1]: {p[1]: p[2]
-                             for p in t[2]}
-                      for t in metadata.topics}
-        elif api_version == 1:
-            topics = {t[1]: {p[1]: p[2]
-                             for p in t[3]}
-                      for t in metadata.topics}
+            TOPIC_ERROR = 0
+            TOPIC_NAME = 1
+            TOPIC_PARTITIONS = 2
+            PARTITION_ERROR = 0
+            PARTITION_NUMBER = 1
+            PARTITION_LEADER = 2
+        else:
+            TOPIC_ERROR = 0
+            TOPIC_NAME = 1
+            TOPIC_PARTITIONS = 3
+            PARTITION_ERROR = 0
+            PARTITION_NUMBER = 1
+            PARTITION_LEADER = 2
+
+        new_topics = {}
+        for t in metadata.topics:
+            error_code = t[TOPIC_ERROR]
+            if error_code:
+                error = Errors.for_code(error_code)(t)
+                logging.warning('Received error in metadata response at topic level: %s', error)
+            else:
+                topic = t[TOPIC_NAME]
+                partitions = t[TOPIC_PARTITIONS]
+
+                new_partitions = {}
+                for p in partitions:
+                    error_code = p[PARTITION_ERROR]
+                    if error_code:
+                        error = Errors.for_code(error_code)(p)
+                        logging.warning('Received error in metadata response at partition level for topic %(topic)s: %(error)s',
+                                        {'topic': topic, 'error': error})
+                    else:
+                        partition = p[PARTITION_NUMBER]
+                        leader = p[PARTITION_LEADER]
+                        logging.debug('Received partition assignment for partition %(partition)s of topic %(topic)s',
+                                      {'partition': partition, 'topic': topic})
+
+                        new_partitions[partition] = leader
+
+                new_topics[topic] = new_partitions
+
+        topics = new_topics
 
     def update_highwater(offsets):
         logging.info('Received high-water marks')
-        # TODO: Check error codes
+
         global highwater
+
         for topic, partitions in offsets.topics:
             if topic not in highwater:
                 logging.debug('Received high-water marks for new topic %(topic)s',
@@ -189,18 +228,23 @@ def main():
 
                 highwater[topic] = {}
             for partition, error_code, offsets in partitions:
-                logging.debug('Received high-water marks for partition %(partition)s of topic %(topic)s',
-                              {'partition': partition, 'topic': topic})
+                if error_code:
+                    error = Errors.for_code(error_code)((partition, error_code, offsets))
+                    logging.warning('Received error in offset response for topic %(topic)s: %(error)s',
+                                    {'topic': topic, 'error': error})
+                else:
+                    logging.debug('Received high-water marks for partition %(partition)s of topic %(topic)s',
+                                  {'partition': partition, 'topic': topic})
 
-                highwater[topic][partition] = offsets[0]
-                update_gauge(
-                    metric_name='kafka_topic_highwater',
-                    label_dict={
-                        'topic': topic,
-                        'partition': partition
-                    },
-                    value=offsets[0]
-                )
+                    highwater[topic][partition] = offsets[0]
+                    update_gauge(
+                        metric_name='kafka_topic_highwater',
+                        label_dict={
+                            'topic': topic,
+                            'partition': partition
+                        },
+                        value=offsets[0]
+                    )
 
     def fetch_topics(this_time):
         logging.info('Requesting topics and partition assignments')
