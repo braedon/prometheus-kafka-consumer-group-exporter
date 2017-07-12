@@ -22,12 +22,12 @@ counters = {}
 topics = {}
 
 
-def update_gauge(metric_name, label_dict, value):
+def update_gauge(metric_name, label_dict, value, doc=''):
     label_keys = tuple(label_dict.keys())
     label_values = tuple(label_dict.values())
 
     if metric_name not in gauges:
-        gauges[metric_name] = Gauge(metric_name, '', label_keys)
+        gauges[metric_name] = Gauge(metric_name, doc, label_keys)
 
     gauge = gauges[metric_name]
 
@@ -37,12 +37,12 @@ def update_gauge(metric_name, label_dict, value):
         gauge.set(value)
 
 
-def increment_counter(metric_name, label_dict):
+def increment_counter(metric_name, label_dict, doc=''):
     label_keys = tuple(label_dict.keys())
     label_values = tuple(label_dict.values())
 
     if metric_name not in counters:
-        counters[metric_name] = Counter(metric_name, '', label_keys)
+        counters[metric_name] = Counter(metric_name, doc, label_keys)
 
     counter = counters[metric_name]
 
@@ -257,7 +257,8 @@ def main():
                             'topic': topic,
                             'partition': partition
                         },
-                        value=offsets[0]
+                        value=offsets[0],
+                        doc='The offset of the head of a partition in a topic.'
                     )
 
     def fetch_topics(this_time):
@@ -325,7 +326,8 @@ def main():
                     label_dict={
                         'partition': message.partition
                     },
-                    value=message.offset
+                    value=message.offset,
+                    doc='The current offset of the exporter consumer in a partition of the __consumer_offsets topic.'
                 )
 
                 if message.key and message.value:
@@ -340,7 +342,8 @@ def main():
                                 'topic': key[2],
                                 'partition': key[3]
                             },
-                            value=value[1]
+                            value=value[1],
+                            doc='The current offset of a consumer group in a partition of a topic.'
                         )
 
                         increment_counter(
@@ -349,7 +352,8 @@ def main():
                                 'group': key[1],
                                 'topic': key[2],
                                 'partition': key[3]
-                            }
+                            },
+                            doc='The number of commit messages read by the exporter consumer from a consumer group for a partition of a topic.'
                         )
 
     except KeyboardInterrupt:
