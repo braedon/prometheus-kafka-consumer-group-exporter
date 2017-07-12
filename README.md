@@ -2,6 +2,8 @@ Prometheus Kafka Consumer Group Exporter
 ====
 This Prometheus exporter consumes the `__consumer_offsets` topic of a Kafka cluser and exports the results as Prometheus gauge metrics. i.e. it shows the position of Kafka consumer groups.
 
+The high-water marks of the partitions of each topic are also exported.
+
 # Installation
 The exporter requires Python 3 and Pip 3 to be installed.
 
@@ -19,6 +21,34 @@ By default, it will bind to port 9208 and connect to Kafka on `localhost:9092`. 
 > prometheus-kafka-consumer-group-exporter -p <port> -b <kafka nodes>
 ```
 Run with the `-h` flag to see details on all the available arguments.
+
+Prometheus metrics can then be scraped from the `/metrics` path, e.g. http://localhost:9208/metrics. Metrics are currently actually exposed on all paths, but this may change in the future and `/metrics` is the standard path for Prometheus metric endpoints.
+
+# Metrics
+Four main metrics are exported:
+
+### `kafka_consumer_group_offset{group, topic, partition}`
+The latest committed offset of a consumer group in a given partition of a topic, as read from `__consumer_offsets`. Useful for calculating the consumption rate and lag of a consumer group.
+
+### `kafka_consumer_group_commits{group, topic, partition}`
+The number of commit messages read from `__consumer_offsets` by the exporter from a consumer group for a given partition of a topic. Useful for calculating the commit rate of a consumer group (i.e. are the consumers working).
+
+### `kafka_consumer_group_exporter_offset{partition}`
+The offset of the exporter's consumer in each partition of the `__consumer_offset` topic. Useful for calculating the lag of the exporter.
+
+### `kafka_topic_highwater{topic, partition}`
+The offset of the head of a given partition of a topic, as reported by the lead broker for the partition. Useful for calculating the production rate of the producers for a topic, and the lag of a consumer group (or the exporter itself).
+
+## Lag
+While a lag metric isn't exported, it can be calculated using other metrics:
+```
+# Lag for a consumer group:
+kafka_topic_highwater - on (topic, partition) kafka_consumer_group_offset{group="some-consumer-group"}
+
+# Lag for the exporter:
+kafka_topic_highwater{topic='__consumer_offsets'} - on (partition) kafka_consumer_group_exporter_offset
+```
+Note that as the offset and high-water metrics are updated separately the offset value can be more up-to-date than the high-water, resulting in a negative lag. This is often the case with the exporter lag, as the exporter offset is tracked internally rather than read from `__consumer_offsets`.
 
 # Kafka Config
 If you need to set Kafka consumer configuration that isn't supported by command line arguments, you can provided a standard Kafka consumer properties file:
