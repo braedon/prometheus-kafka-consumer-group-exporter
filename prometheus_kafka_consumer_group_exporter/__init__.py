@@ -20,6 +20,7 @@ METRIC_PREFIX = 'kafka_consumer_group_'
 gauges = {}
 counters = {}
 topics = {}
+highwaters = {}
 
 
 def update_gauge(metric_name, label_dict, value, doc=''):
@@ -251,6 +252,8 @@ def main():
                     logging.debug('Received high-water marks for partition %(partition)s of topic %(topic)s',
                                   {'partition': partition, 'topic': topic})
 
+                    highwater = offsets[0]
+
                     update_gauge(
                         metric_name='kafka_topic_highwater',
                         label_dict={
@@ -260,6 +263,10 @@ def main():
                         value=offsets[0],
                         doc='The offset of the head of a partition in a topic.'
                     )
+
+                    if topic not in highwaters:
+                        highwaters[topic] = {}
+                    highwaters[topic][partition] = highwater
 
     def fetch_topics(this_time):
         logging.info('Requesting topics and partition assignments')
@@ -335,23 +342,40 @@ def main():
                     if key:
                         value = parse_value(message.value)
 
+                        group = key[1]
+                        topic = key[2]
+                        partition = key[3]
+
                         update_gauge(
                             metric_name=METRIC_PREFIX + 'offset',
                             label_dict={
-                                'group': key[1],
-                                'topic': key[2],
-                                'partition': key[3]
+                                'group': group,
+                                'topic': topic,
+                                'partition': partition
                             },
                             value=value[1],
                             doc='The current offset of a consumer group in a partition of a topic.'
                         )
 
+                        if topic in highwaters and partition in highwaters[topic]:
+                            highwater = highwaters[topic][partition]
+                            update_gauge(
+                                metric_name=METRIC_PREFIX + 'lag',
+                                label_dict={
+                                    'group': group,
+                                    'topic': topic,
+                                    'partition': partition
+                                },
+                                value=highwater,
+                                doc='How far a consumer group\'s current offset is behind the head of a partition of a topic'
+                            )
+
                         increment_counter(
                             metric_name=METRIC_PREFIX + 'commits',
                             label_dict={
-                                'group': key[1],
-                                'topic': key[2],
-                                'partition': key[3]
+                                'group': group,
+                                'topic': topic,
+                                'partition': partition
                             },
                             doc='The number of commit messages read by the exporter consumer from a consumer group for a partition of a topic.'
                         )
