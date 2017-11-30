@@ -23,6 +23,21 @@ counters = {}
 topics = {}
 highwaters = {}
 lowwaters = {}
+offsets = {}
+
+
+# Check if a dict contains a key, returning
+# a copy with the key if not.
+# Effectively a way to immutably add a key
+# to a dictionary, allowing other threads
+# to safely iterate over it.
+def ensure_dict_key(curr_dict, key, new_value):
+    if key in curr_dict:
+        return curr_dict
+
+    new_dict = curr_dict.copy()
+    new_dict[key] = new_value
+    return new_dict
 
 
 def group_metrics(metrics):
@@ -83,6 +98,20 @@ class LowwaterCollector(object):
              lowwater)
             for topic, partitions in lowwaters.items()
             for partition, lowwater in partitions.items()
+        ]
+        yield from gauge_generator(metrics)
+
+
+class ConsumerOffsetCollector(object):
+
+    def collect(self):
+        metrics = [
+            (METRIC_PREFIX + 'offset', 'The current offset of a consumer group in a partition of a topic.',
+             {'group': group, 'topic': topic, 'partition': partition},
+             offset)
+            for group, topics in offsets.items()
+            for topic, partitions in topics.items()
+            for partition, offset in partitions.items()
         ]
         yield from gauge_generator(metrics)
 
@@ -432,11 +461,14 @@ def main():
 
     REGISTRY.register(HighwaterCollector())
     REGISTRY.register(LowwaterCollector())
+    REGISTRY.register(ConsumerOffsetCollector())
     now_time = time.time()
 
     fetch_topics(now_time)
     fetch_highwater(now_time)
     fetch_lowwater(now_time)
+
+    global offsets
 
     try:
         while True:
@@ -460,17 +492,10 @@ def main():
                         partition = key[3]
                         offset = value[1]
 
-                        update_gauge(
-                            metric_name=METRIC_PREFIX + 'offset',
-                            label_dict={
-                                'group': group,
-                                'topic': topic,
-                                'partition': partition
-                            },
-                            value=offset,
-                            doc='The current offset of a consumer group in a partition of a topic.'
-                        )
-
+                        offsets = ensure_dict_key(offsets, group, {})
+                        offsets[group] = ensure_dict_key(offsets[group], topic, {})
+                        offsets[group][topic] = ensure_dict_key(offsets[group][topic], partition, offset)
+                        offsets[group][topic][partition] = offset
                         if topic in highwaters and partition in highwaters[topic]:
                             highwater = highwaters[topic][partition]
                             update_gauge(
