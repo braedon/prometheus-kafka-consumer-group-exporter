@@ -27,17 +27,17 @@ lowwaters = {}
 
 def group_metrics(metrics):
     metric_dict = {}
-    for (metric_name, label_dict, value) in metrics:
+    for (metric_name, metric_doc, label_dict, value) in metrics:
         if metric_name not in metric_dict:
-            metric_dict[metric_name] = (tuple(label_dict.keys()), {})
+            metric_dict[metric_name] = (metric_doc, tuple(label_dict.keys()), {})
 
-        label_keys = metric_dict[metric_name][0]
+        label_keys = metric_dict[metric_name][1]
         label_values = tuple([
             str(label_dict[key])
             for key in label_keys
         ])
 
-        metric_dict[metric_name][1][label_values] = value
+        metric_dict[metric_name][2][label_values] = value
 
     return metric_dict
 
@@ -45,18 +45,18 @@ def group_metrics(metrics):
 def gauge_generator(metrics):
     metric_dict = group_metrics(metrics)
 
-    for metric_name, (label_keys, value_dict) in metric_dict.items():
+    for metric_name, (metric_doc, label_keys, value_dict) in metric_dict.items():
         # If we have label keys we may have multiple different values,
         # each with their own label values.
         if label_keys:
-            gauge = GaugeMetricFamily(metric_name, '', labels=label_keys)
+            gauge = GaugeMetricFamily(metric_name, metric_doc, labels=label_keys)
 
             for label_values, value in value_dict.items():
                 gauge.add_metric(label_values, value)
 
         # No label keys, so we must have only a single value.
         else:
-            gauge = GaugeMetricFamily(metric_name, '', value=list(value_dict.values())[0])
+            gauge = GaugeMetricFamily(metric_name, metric_doc, value=list(value_dict.values())[0])
 
         yield gauge
 
@@ -65,7 +65,7 @@ class HighwaterCollector(object):
 
     def collect(self):
         metrics = [
-            ('kafka_topic_highwater',
+            ('kafka_topic_highwater', 'The offset of the head of a partition in a topic.',
              {'topic': topic, 'partition': partition},
              highwater)
             for topic, partitions in highwaters.items()
@@ -78,7 +78,7 @@ class LowwaterCollector(object):
 
     def collect(self):
         metrics = [
-            ('kafka_topic_lowwater',
+            ('kafka_topic_lowwater', 'The offset of the tail of a partition in a topic.',
              {'topic': topic, 'partition': partition},
              lowwater)
             for topic, partitions in lowwaters.items()
