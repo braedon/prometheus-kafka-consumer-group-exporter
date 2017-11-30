@@ -285,8 +285,8 @@ def main():
                             'partition': partition
                         },
                         value=offsets[0],
-                        doc='The offset of the head of a partition in a topic.'
-                    )                   
+                        doc='The offset of the tail of a partition in a topic.'
+                    )
 
     def fetch_topics(this_time):
         logging.info('Requesting topics and partition assignments')
