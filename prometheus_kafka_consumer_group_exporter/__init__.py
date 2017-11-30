@@ -13,6 +13,7 @@ from kafka import KafkaConsumer
 from kafka.protocol.metadata import MetadataRequest
 from kafka.protocol.offset import OffsetRequest, OffsetResetStrategy
 from prometheus_client import start_http_server, Gauge, Counter
+from prometheus_client.core import GaugeMetricFamily, REGISTRY
 from struct import unpack_from
 
 METRIC_PREFIX = 'kafka_consumer_group_'
@@ -22,6 +23,68 @@ counters = {}
 topics = {}
 highwaters = {}
 lowwaters = {}
+
+
+def group_metrics(metrics):
+    metric_dict = {}
+    for (metric_name, label_dict, value) in metrics:
+        if metric_name not in metric_dict:
+            metric_dict[metric_name] = (tuple(label_dict.keys()), {})
+
+        label_keys = metric_dict[metric_name][0]
+        label_values = tuple([
+            str(label_dict[key])
+            for key in label_keys
+        ])
+
+        metric_dict[metric_name][1][label_values] = value
+
+    return metric_dict
+
+
+def gauge_generator(metrics):
+    metric_dict = group_metrics(metrics)
+
+    for metric_name, (label_keys, value_dict) in metric_dict.items():
+        # If we have label keys we may have multiple different values,
+        # each with their own label values.
+        if label_keys:
+            gauge = GaugeMetricFamily(metric_name, '', labels=label_keys)
+
+            for label_values, value in value_dict.items():
+                gauge.add_metric(label_values, value)
+
+        # No label keys, so we must have only a single value.
+        else:
+            gauge = GaugeMetricFamily(metric_name, '', value=list(value_dict.values())[0])
+
+        yield gauge
+
+
+class HighwaterCollector(object):
+
+    def collect(self):
+        metrics = [
+            ('kafka_topic_highwater',
+             {'topic': topic, 'partition': partition},
+             highwater)
+            for topic, partitions in highwaters.items()
+            for partition, highwater in partitions.items()
+        ]
+        yield from gauge_generator(metrics)
+
+
+class LowwaterCollector(object):
+
+    def collect(self):
+        metrics = [
+            ('kafka_topic_lowwater',
+             {'topic': topic, 'partition': partition},
+             lowwater)
+            for topic, partitions in lowwaters.items()
+            for partition, lowwater in partitions.items()
+        ]
+        yield from gauge_generator(metrics)
 
 
 def update_gauge(metric_name, label_dict, value, doc=''):
@@ -259,16 +322,6 @@ def main():
 
                     highwater = offsets[0]
 
-                    update_gauge(
-                        metric_name='kafka_topic_highwater',
-                        label_dict={
-                            'topic': topic,
-                            'partition': partition
-                        },
-                        value=highwater,
-                        doc='The offset of the head of a partition in a topic.'
-                    )
-
                     if topic not in highwaters:
                         highwaters[topic] = {}
                     highwaters[topic][partition] = highwater
@@ -287,16 +340,6 @@ def main():
                                   {'partition': partition, 'topic': topic})
 
                     lowwater = offsets[0]
-
-                    update_gauge(
-                        metric_name='kafka_topic_lowwater',
-                        label_dict={
-                            'topic': topic,
-                            'partition': partition
-                        },
-                        value=lowwater,
-                        doc='The offset of the tail of a partition in a topic.'
-                    )
 
                     if topic not in lowwaters:
                         lowwaters[topic] = {}
@@ -387,6 +430,8 @@ def main():
         finally:
             client.schedule(partial(fetch_lowwater, next_time), next_time)
 
+    REGISTRY.register(HighwaterCollector())
+    REGISTRY.register(LowwaterCollector())
     now_time = time.time()
 
     fetch_topics(now_time)
