@@ -116,6 +116,36 @@ class ConsumerOffsetCollector(object):
         yield from gauge_generator(metrics)
 
 
+class ConsumerLagCollector(object):
+
+    def collect(self):
+        metrics = [
+            (METRIC_PREFIX + 'lag', 'How far a consumer group\'s current offset is behind the head of a partition of a topic.',
+             {'group': group, 'topic': topic, 'partition': partition},
+             highwaters[topic][partition] - offset)
+            for group, topics in offsets.items()
+            for topic, partitions in topics.items()
+            for partition, offset in partitions.items()
+            if topic in highwaters and partition in highwaters[topic]
+        ]
+        yield from gauge_generator(metrics)
+
+
+class ConsumerLeadCollector(object):
+
+    def collect(self):
+        metrics = [
+            (METRIC_PREFIX + 'lead', 'How far a consumer group\'s current offset is ahead of the tail of a partition of a topic.',
+             {'group': group, 'topic': topic, 'partition': partition},
+             offset - lowwaters[topic][partition])
+            for group, topics in offsets.items()
+            for topic, partitions in topics.items()
+            for partition, offset in partitions.items()
+            if topic in lowwaters and partition in lowwaters[topic]
+        ]
+        yield from gauge_generator(metrics)
+
+
 def update_gauge(metric_name, label_dict, value, doc=''):
     label_keys = tuple(label_dict.keys())
     label_values = tuple(label_dict.values())
@@ -462,6 +492,9 @@ def main():
     REGISTRY.register(HighwaterCollector())
     REGISTRY.register(LowwaterCollector())
     REGISTRY.register(ConsumerOffsetCollector())
+    REGISTRY.register(ConsumerLagCollector())
+    REGISTRY.register(ConsumerLeadCollector())
+
     now_time = time.time()
 
     fetch_topics(now_time)
@@ -496,31 +529,6 @@ def main():
                         offsets[group] = ensure_dict_key(offsets[group], topic, {})
                         offsets[group][topic] = ensure_dict_key(offsets[group][topic], partition, offset)
                         offsets[group][topic][partition] = offset
-                        if topic in highwaters and partition in highwaters[topic]:
-                            highwater = highwaters[topic][partition]
-                            update_gauge(
-                                metric_name=METRIC_PREFIX + 'lag',
-                                label_dict={
-                                    'group': group,
-                                    'topic': topic,
-                                    'partition': partition
-                                },
-                                value=highwater - offset,
-                                doc='How far a consumer group\'s current offset is behind the head of a partition of a topic'
-                            )
-
-                        if topic in lowwaters and partition in lowwaters[topic]:
-                            lowwater = lowwaters[topic][partition]
-                            update_gauge(
-                                metric_name=METRIC_PREFIX + 'lead',
-                                label_dict={
-                                    'group': group,
-                                    'topic': topic,
-                                    'partition': partition
-                                },
-                                value=offset - lowwater,
-                                doc='How far a consumer group\'s current offset is ahead of the tail of a partition of a topic'
-                            )
 
                         increment_counter(
                             metric_name=METRIC_PREFIX + 'commits',
