@@ -413,6 +413,7 @@ def main():
                         group = key[1]
                         topic = key[2]
                         partition = key[3]
+                        offset = value[1]
 
                         update_gauge(
                             metric_name=METRIC_PREFIX + 'offset',
@@ -421,7 +422,7 @@ def main():
                                 'topic': topic,
                                 'partition': partition
                             },
-                            value=value[1],
+                            value=offset,
                             doc='The current offset of a consumer group in a partition of a topic.'
                         )
 
@@ -434,7 +435,7 @@ def main():
                                     'topic': topic,
                                     'partition': partition
                                 },
-                                value=highwater,
+                                value=highwater - offset,
                                 doc='How far a consumer group\'s current offset is behind the head of a partition of a topic'
                             )
 
@@ -447,7 +448,7 @@ def main():
                                     'topic': topic,
                                     'partition': partition
                                 },
-                                value=lowwater,
+                                value=offset - lowwater,
                                 doc='How far a consumer group\'s current offset is ahead of the tail of a partition of a topic'
                             )
 
