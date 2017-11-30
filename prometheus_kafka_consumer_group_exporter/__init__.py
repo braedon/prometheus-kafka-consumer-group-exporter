@@ -21,6 +21,7 @@ gauges = {}
 counters = {}
 topics = {}
 highwaters = {}
+lowwaters = {}
 
 
 def update_gauge(metric_name, label_dict, value, doc=''):
@@ -86,6 +87,9 @@ def main():
         '--high-water-interval', type=float, default=10.0,
         help='How often to refresh high-water information, in seconds. (default: 10)')
     parser.add_argument(
+        '--low-water-interval', type=float, default=10.0,
+        help='How often to refresh low-water information, in seconds. (default: 10)')
+    parser.add_argument(
         '--consumer-config', action='append', default=[],
         help='Provide additional Kafka consumer config as a consumer.properties file. Multiple files will be merged, later files having precedence.')
     parser.add_argument(
@@ -142,6 +146,7 @@ def main():
 
     topic_interval = args.topic_interval
     high_water_interval = args.high_water_interval
+    low_water_interval = args.low_water_interval
 
     logging.info('Starting server...')
     start_http_server(port)
@@ -260,13 +265,42 @@ def main():
                             'topic': topic,
                             'partition': partition
                         },
-                        value=offsets[0],
+                        value=highwater,
                         doc='The offset of the head of a partition in a topic.'
                     )
 
                     if topic not in highwaters:
                         highwaters[topic] = {}
                     highwaters[topic][partition] = highwater
+
+    def update_lowwater(offsets):
+        logging.info('Received low-water marks')
+
+        for topic, partitions in offsets.topics:
+            for partition, error_code, offsets in partitions:
+                if error_code:
+                    error = Errors.for_code(error_code)((partition, error_code, offsets))
+                    logging.warning('Received error in offset response for topic %(topic)s: %(error)s',
+                                    {'topic': topic, 'error': error})
+                else:
+                    logging.debug('Received low-water marks for partition %(partition)s of topic %(topic)s',
+                                  {'partition': partition, 'topic': topic})
+
+                    lowwater = offsets[0]
+
+                    update_gauge(
+                        metric_name='kafka_topic_lowwater',
+                        label_dict={
+                            'topic': topic,
+                            'partition': partition
+                        },
+                        value=lowwater,
+                        doc='The offset of the tail of a partition in a topic.'
+                    )
+
+                    if topic not in lowwaters:
+                        lowwaters[topic] = {}
+                    lowwaters[topic][partition] = lowwater
 
     def fetch_topics(this_time):
         logging.info('Requesting topics and partition assignments')
@@ -320,10 +354,44 @@ def main():
         finally:
             client.schedule(partial(fetch_highwater, next_time), next_time)
 
+    def fetch_lowwater(this_time):
+        logging.info('Requesting low-water marks')
+        next_time = this_time + low_water_interval
+        try:
+            global topics
+            if topics:
+                nodes = {}
+                for topic, partition_map in topics.items():
+                    for partition, leader in partition_map.items():
+                        if leader not in nodes:
+                            nodes[leader] = {}
+                        if topic not in nodes[leader]:
+                            nodes[leader][topic] = []
+                        nodes[leader][topic].append(partition)
+
+                for node, topic_map in nodes.items():
+                    logging.debug('Requesting low-water marks from %(node)s',
+                                  {'topic': topic, 'node': node})
+
+                    request = OffsetRequest[0](
+                        -1,
+                        [(topic,
+                          [(partition, OffsetResetStrategy.EARLIEST, 1)
+                           for partition in partitions])
+                         for topic, partitions in topic_map.items()]
+                    )
+                    f = client.send(node, request)
+                    f.add_callback(update_lowwater)
+        except Exception:
+            logging.exception('Error requesting low-water marks')
+        finally:
+            client.schedule(partial(fetch_lowwater, next_time), next_time)
+
     now_time = time.time()
 
     fetch_topics(now_time)
     fetch_highwater(now_time)
+    fetch_lowwater(now_time)
 
     try:
         while True:
@@ -368,6 +436,19 @@ def main():
                                 },
                                 value=highwater,
                                 doc='How far a consumer group\'s current offset is behind the head of a partition of a topic'
+                            )
+
+                        if topic in lowwaters and partition in lowwaters[topic]:
+                            lowwater = lowwaters[topic][partition]
+                            update_gauge(
+                                metric_name=METRIC_PREFIX + 'lead',
+                                label_dict={
+                                    'group': group,
+                                    'topic': topic,
+                                    'partition': partition
+                                },
+                                value=lowwater,
+                                doc='How far a consumer group\'s current offset is ahead of the tail of a partition of a topic'
                             )
 
                         increment_counter(

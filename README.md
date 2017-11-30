@@ -39,6 +39,9 @@ The offset of the exporter's consumer in each partition of the `__consumer_offse
 ### `kafka_topic_highwater{topic, partition}`
 The offset of the head of a given partition of a topic, as reported by the lead broker for the partition. Useful for calculating the production rate of the producers for a topic, and the lag of a consumer group (or the exporter itself).
 
+### `kafka_topic_lowwater{topic, partition}`
+The offset of the tail of a given partition of a topic, as reported by the lead broker for the partition. Useful for calculating the lead of a consumer group (or the exporter itself) - i.e. how far ahead of the cleaner the consumer group is.
+
 ## Lag
 While a lag metric isn't exported, it can be calculated using other metrics:
 ```
