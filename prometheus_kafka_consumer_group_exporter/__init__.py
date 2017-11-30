@@ -12,18 +12,18 @@ from jog import JogFormatter
 from kafka import KafkaConsumer
 from kafka.protocol.metadata import MetadataRequest
 from kafka.protocol.offset import OffsetRequest, OffsetResetStrategy
-from prometheus_client import start_http_server, Gauge, Counter
-from prometheus_client.core import GaugeMetricFamily, REGISTRY
+from prometheus_client import start_http_server
+from prometheus_client.core import GaugeMetricFamily, CounterMetricFamily, REGISTRY
 from struct import unpack_from
 
 METRIC_PREFIX = 'kafka_consumer_group_'
 
-gauges = {}
-counters = {}
 topics = {}
 highwaters = {}
 lowwaters = {}
 offsets = {}
+commits = {}
+exporter_offsets = {}
 
 
 # Check if a dict contains a key, returning
@@ -72,6 +72,25 @@ def gauge_generator(metrics):
         # No label keys, so we must have only a single value.
         else:
             gauge = GaugeMetricFamily(metric_name, metric_doc, value=list(value_dict.values())[0])
+
+        yield gauge
+
+
+def counter_generator(metrics):
+    metric_dict = group_metrics(metrics)
+
+    for metric_name, (metric_doc, label_keys, value_dict) in metric_dict.items():
+        # If we have label keys we may have multiple different values,
+        # each with their own label values.
+        if label_keys:
+            gauge = CounterMetricFamily(metric_name, metric_doc, labels=label_keys)
+
+            for label_values, value in value_dict.items():
+                gauge.add_metric(label_values, value)
+
+        # No label keys, so we must have only a single value.
+        else:
+            gauge = CounterMetricFamily(metric_name, metric_doc, value=list(value_dict.values())[0])
 
         yield gauge
 
@@ -146,34 +165,30 @@ class ConsumerLeadCollector(object):
         yield from gauge_generator(metrics)
 
 
-def update_gauge(metric_name, label_dict, value, doc=''):
-    label_keys = tuple(label_dict.keys())
-    label_values = tuple(label_dict.values())
+class ConsumerCommitsCollector(object):
 
-    if metric_name not in gauges:
-        gauges[metric_name] = Gauge(metric_name, doc, label_keys)
+    def collect(self):
+        metrics = [
+            (METRIC_PREFIX + 'commits', 'The number of commit messages read by the exporter consumer from a consumer group for a partition of a topic.',
+             {'group': group, 'topic': topic, 'partition': partition},
+             commit_count)
+            for group, topics in commits.items()
+            for topic, partitions in topics.items()
+            for partition, commit_count in partitions.items()
+        ]
+        yield from counter_generator(metrics)
 
-    gauge = gauges[metric_name]
 
-    if label_values:
-        gauge.labels(*label_values).set(value)
-    else:
-        gauge.set(value)
+class ExporterOffsetCollector(object):
 
-
-def increment_counter(metric_name, label_dict, doc=''):
-    label_keys = tuple(label_dict.keys())
-    label_values = tuple(label_dict.values())
-
-    if metric_name not in counters:
-        counters[metric_name] = Counter(metric_name, doc, label_keys)
-
-    counter = counters[metric_name]
-
-    if label_values:
-        counter.labels(*label_values).inc()
-    else:
-        counter.inc()
+    def collect(self):
+        metrics = [
+            (METRIC_PREFIX + 'exporter_offset', 'The current offset of the exporter consumer in a partition of the __consumer_offsets topic.',
+             {'partition': partition},
+             offset)
+            for partition, offset in exporter_offsets.items()
+        ]
+        yield from gauge_generator(metrics)
 
 
 def shutdown():
@@ -494,6 +509,8 @@ def main():
     REGISTRY.register(ConsumerOffsetCollector())
     REGISTRY.register(ConsumerLagCollector())
     REGISTRY.register(ConsumerLeadCollector())
+    REGISTRY.register(ConsumerCommitsCollector())
+    REGISTRY.register(ExporterOffsetCollector())
 
     now_time = time.time()
 
@@ -502,18 +519,16 @@ def main():
     fetch_lowwater(now_time)
 
     global offsets
+    global commits
+    global exporter_offsets
 
     try:
         while True:
             for message in consumer:
-                update_gauge(
-                    metric_name=METRIC_PREFIX + 'exporter_offset',
-                    label_dict={
-                        'partition': message.partition
-                    },
-                    value=message.offset,
-                    doc='The current offset of the exporter consumer in a partition of the __consumer_offsets topic.'
-                )
+                exporter_partition = message.partition
+                exporter_offset = message.offset
+                exporter_offsets = ensure_dict_key(exporter_offsets, exporter_partition, exporter_offset)
+                exporter_offsets[exporter_partition] = exporter_offset
 
                 if message.key and message.value:
                     key = parse_key(message.key)
@@ -530,15 +545,10 @@ def main():
                         offsets[group][topic] = ensure_dict_key(offsets[group][topic], partition, offset)
                         offsets[group][topic][partition] = offset
 
-                        increment_counter(
-                            metric_name=METRIC_PREFIX + 'commits',
-                            label_dict={
-                                'group': group,
-                                'topic': topic,
-                                'partition': partition
-                            },
-                            doc='The number of commit messages read by the exporter consumer from a consumer group for a partition of a topic.'
-                        )
+                        commits = ensure_dict_key(commits, group, {})
+                        commits[group] = ensure_dict_key(commits[group], topic, {})
+                        commits[group][topic] = ensure_dict_key(commits[group][topic], partition, 0)
+                        commits[group][topic][partition] += 1
 
     except KeyboardInterrupt:
         pass
