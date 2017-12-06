@@ -18,12 +18,42 @@ from struct import unpack_from
 
 METRIC_PREFIX = 'kafka_consumer_group_'
 
-topics = {}
-highwaters = {}
-lowwaters = {}
-offsets = {}
-commits = {}
-exporter_offsets = {}
+topics = {}  # topic->partition->leader
+node_highwaters = {}  # node->topic->partition->highwater
+node_lowwaters = {}  # node->topic->partition->lowwater
+offsets = {}  # group->topic->partition->offset
+commits = {}  # group->topic->partition->commits
+exporter_offsets = {}  # partition->offset
+
+
+def build_highwaters():
+    # Copy node_highwaters before iterating over it
+    # as it may be updated by other threads.
+    # (only first level - lower levels are replaced
+    # wholesale, so don't worry about them)
+    local_node_highwaters = node_highwaters.copy()
+
+    highwaters = {}
+    for node, topics in local_node_highwaters.items():
+        for topic, partitions in topics.items():
+            highwaters[topic] = {**highwaters.get(topic, {}), **partitions}
+
+    return highwaters
+
+
+def build_lowwaters():
+    # Copy node_lowwaters before iterating over it
+    # as it may be updated by other threads.
+    # (only first level - lower levels are replaced
+    # wholesale, so don't worry about them)
+    local_node_lowwaters = node_lowwaters.copy()
+
+    lowwaters = {}
+    for node, topics in local_node_lowwaters.items():
+        for topic, partitions in topics.items():
+            lowwaters[topic] = {**lowwaters.get(topic, {}), **partitions}
+
+    return lowwaters
 
 
 # Check if a dict contains a key, returning
@@ -98,6 +128,7 @@ def counter_generator(metrics):
 class HighwaterCollector(object):
 
     def collect(self):
+        highwaters = build_highwaters()
         metrics = [
             ('kafka_topic_highwater', 'The offset of the head of a partition in a topic.',
              {'topic': topic, 'partition': partition},
@@ -111,6 +142,7 @@ class HighwaterCollector(object):
 class LowwaterCollector(object):
 
     def collect(self):
+        lowwaters = build_lowwaters()
         metrics = [
             ('kafka_topic_lowwater', 'The offset of the tail of a partition in a topic.',
              {'topic': topic, 'partition': partition},
@@ -138,6 +170,7 @@ class ConsumerOffsetCollector(object):
 class ConsumerLagCollector(object):
 
     def collect(self):
+        highwaters = build_highwaters()
         metrics = [
             (METRIC_PREFIX + 'lag', 'How far a consumer group\'s current offset is behind the head of a partition of a topic.',
              {'group': group, 'topic': topic, 'partition': partition},
@@ -153,6 +186,7 @@ class ConsumerLagCollector(object):
 class ConsumerLeadCollector(object):
 
     def collect(self):
+        lowwaters = build_lowwaters()
         metrics = [
             (METRIC_PREFIX + 'lead', 'How far a consumer group\'s current offset is ahead of the tail of a partition of a topic.',
              {'group': group, 'topic': topic, 'partition': partition},
@@ -335,8 +369,6 @@ def main():
     def update_topics(api_version, metadata):
         logging.info('Received topics and partition assignments')
 
-        global topics
-
         if api_version == 0:
             TOPIC_ERROR = 0
             TOPIC_NAME = 1
@@ -379,11 +411,13 @@ def main():
 
                 new_topics[topic] = new_partitions
 
+        global topics
         topics = new_topics
 
-    def update_highwater(offsets):
+    def update_highwater(node, offsets):
         logging.info('Received high-water marks')
 
+        highwaters = {}
         for topic, partitions in offsets.topics:
             for partition, error_code, offsets in partitions:
                 if error_code:
@@ -400,9 +434,13 @@ def main():
                         highwaters[topic] = {}
                     highwaters[topic][partition] = highwater
 
-    def update_lowwater(offsets):
+        global node_highwaters
+        node_highwaters[node] = highwaters
+
+    def update_lowwater(node, offsets):
         logging.info('Received low-water marks')
 
+        lowwaters = {}
         for topic, partitions in offsets.topics:
             for partition, error_code, offsets in partitions:
                 if error_code:
@@ -418,6 +456,9 @@ def main():
                     if topic not in lowwaters:
                         lowwaters[topic] = {}
                     lowwaters[topic][partition] = lowwater
+
+        global node_lowwaters
+        node_lowwaters[node] = lowwaters
 
     def fetch_topics(this_time):
         logging.info('Requesting topics and partition assignments')
@@ -442,7 +483,6 @@ def main():
         logging.info('Requesting high-water marks')
         next_time = this_time + high_water_interval
         try:
-            global topics
             if topics:
                 nodes = {}
                 for topic, partition_map in topics.items():
@@ -452,6 +492,21 @@ def main():
                         if topic not in nodes[leader]:
                             nodes[leader][topic] = []
                         nodes[leader][topic].append(partition)
+
+                # Build a new highwaters dict with only the nodes that
+                # are leaders of at least one topic - i.e. the ones
+                # we will be sending requests to.
+                # Removes old nodes, and adds empty dicts for new nodes.
+                # Values will be populated/updated with values we get
+                # in the response from each node.
+                # Topics/Partitions on old nodes may disappear briefly
+                # before they reappear on their new nodes.
+                new_node_highwaters = {}
+                for node in nodes.keys():
+                    new_node_highwaters[node] = node_highwaters.get(node, {})
+
+                global node_highwaters
+                node_highwaters = new_node_highwaters
 
                 for node, topic_map in nodes.items():
                     logging.debug('Requesting high-water marks from %(node)s',
@@ -465,7 +520,7 @@ def main():
                          for topic, partitions in topic_map.items()]
                     )
                     f = client.send(node, request)
-                    f.add_callback(update_highwater)
+                    f.add_callback(update_highwater, node)
         except Exception:
             logging.exception('Error requesting high-water marks')
         finally:
@@ -475,7 +530,6 @@ def main():
         logging.info('Requesting low-water marks')
         next_time = this_time + low_water_interval
         try:
-            global topics
             if topics:
                 nodes = {}
                 for topic, partition_map in topics.items():
@@ -485,6 +539,21 @@ def main():
                         if topic not in nodes[leader]:
                             nodes[leader][topic] = []
                         nodes[leader][topic].append(partition)
+
+                # Build a new node_lowwaters dict with only the nodes that
+                # are leaders of at least one topic - i.e. the ones
+                # we will be sending requests to.
+                # Removes old nodes, and adds empty dicts for new nodes.
+                # Values will be populated/updated with values we get
+                # in the response from each node.
+                # Topics/Partitions on old nodes may disappear briefly
+                # before they reappear on their new nodes.
+                new_node_lowwaters = {}
+                for node in nodes.keys():
+                    new_node_lowwaters[node] = node_lowwaters.get(node, {})
+
+                global node_lowwaters
+                node_lowwaters = new_node_lowwaters
 
                 for node, topic_map in nodes.items():
                     logging.debug('Requesting low-water marks from %(node)s',
@@ -498,7 +567,7 @@ def main():
                          for topic, partitions in topic_map.items()]
                     )
                     f = client.send(node, request)
-                    f.add_callback(update_lowwater)
+                    f.add_callback(update_lowwater, node)
         except Exception:
             logging.exception('Error requesting low-water marks')
         finally:
