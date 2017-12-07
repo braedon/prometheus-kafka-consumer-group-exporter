@@ -72,15 +72,9 @@ def ensure_dict_key(curr_dict, key, new_value):
 
 def group_metrics(metrics):
     metric_dict = {}
-    for (metric_name, metric_doc, label_dict, value) in metrics:
+    for (metric_name, metric_doc, label_keys, label_values, value) in metrics:
         if metric_name not in metric_dict:
-            metric_dict[metric_name] = (metric_doc, tuple(label_dict.keys()), {})
-
-        label_keys = metric_dict[metric_name][1]
-        label_values = tuple([
-            str(label_dict[key])
-            for key in label_keys
-        ])
+            metric_dict[metric_name] = (metric_doc, label_keys, {})
 
         metric_dict[metric_name][2][label_values] = value
 
@@ -96,8 +90,9 @@ def gauge_generator(metrics):
         if label_keys:
             gauge = GaugeMetricFamily(metric_name, metric_doc, labels=label_keys)
 
-            for label_values, value in value_dict.items():
-                gauge.add_metric(label_values, value)
+            for label_values in sorted(value_dict.keys()):
+                value = value_dict[label_values]
+                gauge.add_metric(tuple(str(v) for v in label_values), value)
 
         # No label keys, so we must have only a single value.
         else:
@@ -113,16 +108,17 @@ def counter_generator(metrics):
         # If we have label keys we may have multiple different values,
         # each with their own label values.
         if label_keys:
-            gauge = CounterMetricFamily(metric_name, metric_doc, labels=label_keys)
+            counter = CounterMetricFamily(metric_name, metric_doc, labels=label_keys)
 
-            for label_values, value in value_dict.items():
-                gauge.add_metric(label_values, value)
+            for label_values in sorted(value_dict.keys()):
+                value = value_dict[label_values]
+                counter.add_metric(tuple(str(v) for v in label_values), value)
 
         # No label keys, so we must have only a single value.
         else:
-            gauge = CounterMetricFamily(metric_name, metric_doc, value=list(value_dict.values())[0])
+            counter = CounterMetricFamily(metric_name, metric_doc, value=list(value_dict.values())[0])
 
-        yield gauge
+        yield counter
 
 
 class HighwaterCollector(object):
@@ -131,7 +127,7 @@ class HighwaterCollector(object):
         highwaters = build_highwaters()
         metrics = [
             ('kafka_topic_highwater', 'The offset of the head of a partition in a topic.',
-             {'topic': topic, 'partition': partition},
+             ('topic', 'partition'), (topic, partition),
              highwater)
             for topic, partitions in highwaters.items()
             for partition, highwater in partitions.items()
@@ -145,7 +141,7 @@ class LowwaterCollector(object):
         lowwaters = build_lowwaters()
         metrics = [
             ('kafka_topic_lowwater', 'The offset of the tail of a partition in a topic.',
-             {'topic': topic, 'partition': partition},
+             ('topic', 'partition'), (topic, partition),
              lowwater)
             for topic, partitions in lowwaters.items()
             for partition, lowwater in partitions.items()
@@ -158,7 +154,7 @@ class ConsumerOffsetCollector(object):
     def collect(self):
         metrics = [
             (METRIC_PREFIX + 'offset', 'The current offset of a consumer group in a partition of a topic.',
-             {'group': group, 'topic': topic, 'partition': partition},
+             ('group', 'topic', 'partition'), (group, topic, partition),
              offset)
             for group, topics in offsets.items()
             for topic, partitions in topics.items()
@@ -173,7 +169,7 @@ class ConsumerLagCollector(object):
         highwaters = build_highwaters()
         metrics = [
             (METRIC_PREFIX + 'lag', 'How far a consumer group\'s current offset is behind the head of a partition of a topic.',
-             {'group': group, 'topic': topic, 'partition': partition},
+             ('group', 'topic', 'partition'), (group, topic, partition),
              highwaters[topic][partition] - offset)
             for group, topics in offsets.items()
             for topic, partitions in topics.items()
@@ -189,7 +185,7 @@ class ConsumerLeadCollector(object):
         lowwaters = build_lowwaters()
         metrics = [
             (METRIC_PREFIX + 'lead', 'How far a consumer group\'s current offset is ahead of the tail of a partition of a topic.',
-             {'group': group, 'topic': topic, 'partition': partition},
+             ('group', 'topic', 'partition'), (group, topic, partition),
              offset - lowwaters[topic][partition])
             for group, topics in offsets.items()
             for topic, partitions in topics.items()
@@ -204,7 +200,7 @@ class ConsumerCommitsCollector(object):
     def collect(self):
         metrics = [
             (METRIC_PREFIX + 'commits', 'The number of commit messages read by the exporter consumer from a consumer group for a partition of a topic.',
-             {'group': group, 'topic': topic, 'partition': partition},
+             ('group', 'topic', 'partition'), (group, topic, partition),
              commit_count)
             for group, topics in commits.items()
             for topic, partitions in topics.items()
@@ -218,7 +214,7 @@ class ExporterOffsetCollector(object):
     def collect(self):
         metrics = [
             (METRIC_PREFIX + 'exporter_offset', 'The current offset of the exporter consumer in a partition of the __consumer_offsets topic.',
-             {'partition': partition},
+             ('partition',), (partition,),
              offset)
             for partition, offset in exporter_offsets.items()
         ]
