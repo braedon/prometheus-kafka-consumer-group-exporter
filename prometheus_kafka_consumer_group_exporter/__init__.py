@@ -489,6 +489,7 @@ def main():
                             nodes[leader][topic] = []
                         nodes[leader][topic].append(partition)
 
+                global node_highwaters
                 # Build a new highwaters dict with only the nodes that
                 # are leaders of at least one topic - i.e. the ones
                 # we will be sending requests to.
@@ -501,7 +502,6 @@ def main():
                 for node in nodes.keys():
                     new_node_highwaters[node] = node_highwaters.get(node, {})
 
-                global node_highwaters
                 node_highwaters = new_node_highwaters
 
                 for node, topic_map in nodes.items():
@@ -536,6 +536,7 @@ def main():
                             nodes[leader][topic] = []
                         nodes[leader][topic].append(partition)
 
+                global node_lowwaters
                 # Build a new node_lowwaters dict with only the nodes that
                 # are leaders of at least one topic - i.e. the ones
                 # we will be sending requests to.
@@ -548,7 +549,6 @@ def main():
                 for node in nodes.keys():
                     new_node_lowwaters[node] = node_lowwaters.get(node, {})
 
-                global node_lowwaters
                 node_lowwaters = new_node_lowwaters
 
                 for node, topic_map in nodes.items():
