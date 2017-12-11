@@ -12,44 +12,243 @@ from jog import JogFormatter
 from kafka import KafkaConsumer
 from kafka.protocol.metadata import MetadataRequest
 from kafka.protocol.offset import OffsetRequest, OffsetResetStrategy
-from prometheus_client import start_http_server, Gauge, Counter
+from prometheus_client import start_http_server
+from prometheus_client.core import GaugeMetricFamily, CounterMetricFamily, REGISTRY
 from struct import unpack_from
 
 METRIC_PREFIX = 'kafka_consumer_group_'
 
-gauges = {}
-counters = {}
-topics = {}
+topics = {}  # topic->partition->leader
+node_highwaters = {}  # node->topic->partition->highwater
+node_lowwaters = {}  # node->topic->partition->lowwater
+offsets = {}  # group->topic->partition->offset
+commits = {}  # group->topic->partition->commits
+exporter_offsets = {}  # partition->offset
 
 
-def update_gauge(metric_name, label_dict, value, doc=''):
-    label_keys = tuple(label_dict.keys())
-    label_values = tuple(label_dict.values())
+def build_highwaters():
+    # Copy node_highwaters before iterating over it
+    # as it may be updated by other threads.
+    # (only first level - lower levels are replaced
+    # wholesale, so don't worry about them)
+    local_node_highwaters = node_highwaters.copy()
 
-    if metric_name not in gauges:
-        gauges[metric_name] = Gauge(metric_name, doc, label_keys)
+    highwaters = {}
+    for node, topics in local_node_highwaters.items():
+        for topic, partitions in topics.items():
+            highwaters[topic] = {**highwaters.get(topic, {}), **partitions}
 
-    gauge = gauges[metric_name]
-
-    if label_values:
-        gauge.labels(*label_values).set(value)
-    else:
-        gauge.set(value)
+    return highwaters
 
 
-def increment_counter(metric_name, label_dict, doc=''):
-    label_keys = tuple(label_dict.keys())
-    label_values = tuple(label_dict.values())
+def build_lowwaters():
+    # Copy node_lowwaters before iterating over it
+    # as it may be updated by other threads.
+    # (only first level - lower levels are replaced
+    # wholesale, so don't worry about them)
+    local_node_lowwaters = node_lowwaters.copy()
 
-    if metric_name not in counters:
-        counters[metric_name] = Counter(metric_name, doc, label_keys)
+    lowwaters = {}
+    for node, topics in local_node_lowwaters.items():
+        for topic, partitions in topics.items():
+            lowwaters[topic] = {**lowwaters.get(topic, {}), **partitions}
 
-    counter = counters[metric_name]
+    return lowwaters
 
-    if label_values:
-        counter.labels(*label_values).inc()
-    else:
-        counter.inc()
+
+# Check if a dict contains a key, returning
+# a copy with the key if not.
+# Effectively a way to immutably add a key
+# to a dictionary, allowing other threads
+# to safely iterate over it.
+def ensure_dict_key(curr_dict, key, new_value):
+    if key in curr_dict:
+        return curr_dict
+
+    new_dict = curr_dict.copy()
+    new_dict[key] = new_value
+    return new_dict
+
+
+def group_metrics(metrics):
+    metric_dict = {}
+    for (metric_name, metric_doc, label_keys, label_values, value) in metrics:
+        if metric_name not in metric_dict:
+            metric_dict[metric_name] = (metric_doc, label_keys, {})
+
+        metric_dict[metric_name][2][label_values] = value
+
+    return metric_dict
+
+
+def gauge_generator(metrics):
+    metric_dict = group_metrics(metrics)
+
+    for metric_name, (metric_doc, label_keys, value_dict) in metric_dict.items():
+        # If we have label keys we may have multiple different values,
+        # each with their own label values.
+        if label_keys:
+            gauge = GaugeMetricFamily(metric_name, metric_doc, labels=label_keys)
+
+            for label_values in sorted(value_dict.keys()):
+                value = value_dict[label_values]
+                gauge.add_metric(tuple(str(v) for v in label_values), value)
+
+        # No label keys, so we must have only a single value.
+        else:
+            gauge = GaugeMetricFamily(metric_name, metric_doc, value=list(value_dict.values())[0])
+
+        yield gauge
+
+
+def counter_generator(metrics):
+    metric_dict = group_metrics(metrics)
+
+    for metric_name, (metric_doc, label_keys, value_dict) in metric_dict.items():
+        # If we have label keys we may have multiple different values,
+        # each with their own label values.
+        if label_keys:
+            counter = CounterMetricFamily(metric_name, metric_doc, labels=label_keys)
+
+            for label_values in sorted(value_dict.keys()):
+                value = value_dict[label_values]
+                counter.add_metric(tuple(str(v) for v in label_values), value)
+
+        # No label keys, so we must have only a single value.
+        else:
+            counter = CounterMetricFamily(metric_name, metric_doc, value=list(value_dict.values())[0])
+
+        yield counter
+
+
+class HighwaterCollector(object):
+
+    def collect(self):
+        highwaters = build_highwaters()
+        metrics = [
+            ('kafka_topic_highwater', 'The offset of the head of a partition in a topic.',
+             ('topic', 'partition'), (topic, partition),
+             highwater)
+            for topic, partitions in highwaters.items()
+            for partition, highwater in partitions.items()
+        ]
+        yield from gauge_generator(metrics)
+
+
+class LowwaterCollector(object):
+
+    def collect(self):
+        lowwaters = build_lowwaters()
+        metrics = [
+            ('kafka_topic_lowwater', 'The offset of the tail of a partition in a topic.',
+             ('topic', 'partition'), (topic, partition),
+             lowwater)
+            for topic, partitions in lowwaters.items()
+            for partition, lowwater in partitions.items()
+        ]
+        yield from gauge_generator(metrics)
+
+
+class ConsumerOffsetCollector(object):
+
+    def collect(self):
+        metrics = [
+            (METRIC_PREFIX + 'offset', 'The current offset of a consumer group in a partition of a topic.',
+             ('group', 'topic', 'partition'), (group, topic, partition),
+             offset)
+            for group, topics in offsets.items()
+            for topic, partitions in topics.items()
+            for partition, offset in partitions.items()
+        ]
+        yield from gauge_generator(metrics)
+
+
+class ConsumerLagCollector(object):
+
+    def collect(self):
+        highwaters = build_highwaters()
+        metrics = [
+            (METRIC_PREFIX + 'lag', 'How far a consumer group\'s current offset is behind the head of a partition of a topic.',
+             ('group', 'topic', 'partition'), (group, topic, partition),
+             highwaters[topic][partition] - offset)
+            for group, topics in offsets.items()
+            for topic, partitions in topics.items()
+            for partition, offset in partitions.items()
+            if topic in highwaters and partition in highwaters[topic]
+        ]
+        yield from gauge_generator(metrics)
+
+
+class ConsumerLeadCollector(object):
+
+    def collect(self):
+        lowwaters = build_lowwaters()
+        metrics = [
+            (METRIC_PREFIX + 'lead', 'How far a consumer group\'s current offset is ahead of the tail of a partition of a topic.',
+             ('group', 'topic', 'partition'), (group, topic, partition),
+             offset - lowwaters[topic][partition])
+            for group, topics in offsets.items()
+            for topic, partitions in topics.items()
+            for partition, offset in partitions.items()
+            if topic in lowwaters and partition in lowwaters[topic]
+        ]
+        yield from gauge_generator(metrics)
+
+
+class ConsumerCommitsCollector(object):
+
+    def collect(self):
+        metrics = [
+            (METRIC_PREFIX + 'commits', 'The number of commit messages read by the exporter consumer from a consumer group for a partition of a topic.',
+             ('group', 'topic', 'partition'), (group, topic, partition),
+             commit_count)
+            for group, topics in commits.items()
+            for topic, partitions in topics.items()
+            for partition, commit_count in partitions.items()
+        ]
+        yield from counter_generator(metrics)
+
+
+class ExporterOffsetCollector(object):
+
+    def collect(self):
+        metrics = [
+            (METRIC_PREFIX + 'exporter_offset', 'The current offset of the exporter consumer in a partition of the __consumer_offsets topic.',
+             ('partition',), (partition,),
+             offset)
+            for partition, offset in exporter_offsets.items()
+        ]
+        yield from gauge_generator(metrics)
+
+
+class ExporterLagCollector(object):
+
+    def collect(self):
+        topic = '__consumer_offsets'
+        highwaters = build_highwaters()
+        metrics = [
+            (METRIC_PREFIX + 'exporter_lag', 'How far the exporter consumer is behind the head of a partition of the __consumer_offsets topic.',
+             ('partition',), (partition,),
+             highwaters[topic][partition] - offset)
+            for partition, offset in exporter_offsets.items()
+            if topic in highwaters and partition in highwaters[topic]
+        ]
+        yield from gauge_generator(metrics)
+
+
+class ExporterLeadCollector(object):
+
+    def collect(self):
+        topic = '__consumer_offsets'
+        lowwaters = build_lowwaters()
+        metrics = [
+            (METRIC_PREFIX + 'exporter_lead', 'How far the exporter consumer is ahead of the tail of a partition of the __consumer_offsets topic.',
+             ('partition',), (partition,),
+             offset - lowwaters[topic][partition])
+            for partition, offset in exporter_offsets.items()
+            if topic in lowwaters and partition in lowwaters[topic]
+        ]
+        yield from gauge_generator(metrics)
 
 
 def shutdown():
@@ -196,8 +395,6 @@ def main():
     def update_topics(api_version, metadata):
         logging.info('Received topics and partition assignments')
 
-        global topics
-
         if api_version == 0:
             TOPIC_ERROR = 0
             TOPIC_NAME = 1
@@ -240,11 +437,13 @@ def main():
 
                 new_topics[topic] = new_partitions
 
+        global topics
         topics = new_topics
 
-    def update_highwater(offsets):
+    def update_highwater(node, offsets):
         logging.info('Received high-water marks')
 
+        highwaters = {}
         for topic, partitions in offsets.topics:
             for partition, error_code, offsets in partitions:
                 if error_code:
@@ -255,19 +454,19 @@ def main():
                     logging.debug('Received high-water marks for partition %(partition)s of topic %(topic)s',
                                   {'partition': partition, 'topic': topic})
 
-                    update_gauge(
-                        metric_name='kafka_topic_highwater',
-                        label_dict={
-                            'topic': topic,
-                            'partition': partition
-                        },
-                        value=offsets[0],
-                        doc='The offset of the head of a partition in a topic.'
-                    )
+                    highwater = offsets[0]
 
-    def update_lowwater(offsets):
+                    if topic not in highwaters:
+                        highwaters[topic] = {}
+                    highwaters[topic][partition] = highwater
+
+        global node_highwaters
+        node_highwaters[node] = highwaters
+
+    def update_lowwater(node, offsets):
         logging.info('Received low-water marks')
 
+        lowwaters = {}
         for topic, partitions in offsets.topics:
             for partition, error_code, offsets in partitions:
                 if error_code:
@@ -278,15 +477,14 @@ def main():
                     logging.debug('Received low-water marks for partition %(partition)s of topic %(topic)s',
                                   {'partition': partition, 'topic': topic})
 
-                    update_gauge(
-                        metric_name='kafka_topic_lowwater',
-                        label_dict={
-                            'topic': topic,
-                            'partition': partition
-                        },
-                        value=offsets[0],
-                        doc='The offset of the tail of a partition in a topic.'
-                    )
+                    lowwater = offsets[0]
+
+                    if topic not in lowwaters:
+                        lowwaters[topic] = {}
+                    lowwaters[topic][partition] = lowwater
+
+        global node_lowwaters
+        node_lowwaters[node] = lowwaters
 
     def fetch_topics(this_time):
         logging.info('Requesting topics and partition assignments')
@@ -311,7 +509,6 @@ def main():
         logging.info('Requesting high-water marks')
         next_time = this_time + high_water_interval
         try:
-            global topics
             if topics:
                 nodes = {}
                 for topic, partition_map in topics.items():
@@ -321,6 +518,21 @@ def main():
                         if topic not in nodes[leader]:
                             nodes[leader][topic] = []
                         nodes[leader][topic].append(partition)
+
+                global node_highwaters
+                # Build a new highwaters dict with only the nodes that
+                # are leaders of at least one topic - i.e. the ones
+                # we will be sending requests to.
+                # Removes old nodes, and adds empty dicts for new nodes.
+                # Values will be populated/updated with values we get
+                # in the response from each node.
+                # Topics/Partitions on old nodes may disappear briefly
+                # before they reappear on their new nodes.
+                new_node_highwaters = {}
+                for node in nodes.keys():
+                    new_node_highwaters[node] = node_highwaters.get(node, {})
+
+                node_highwaters = new_node_highwaters
 
                 for node, topic_map in nodes.items():
                     logging.debug('Requesting high-water marks from %(node)s',
@@ -334,7 +546,7 @@ def main():
                          for topic, partitions in topic_map.items()]
                     )
                     f = client.send(node, request)
-                    f.add_callback(update_highwater)
+                    f.add_callback(update_highwater, node)
         except Exception:
             logging.exception('Error requesting high-water marks')
         finally:
@@ -344,7 +556,6 @@ def main():
         logging.info('Requesting low-water marks')
         next_time = this_time + low_water_interval
         try:
-            global topics
             if topics:
                 nodes = {}
                 for topic, partition_map in topics.items():
@@ -354,6 +565,21 @@ def main():
                         if topic not in nodes[leader]:
                             nodes[leader][topic] = []
                         nodes[leader][topic].append(partition)
+
+                global node_lowwaters
+                # Build a new node_lowwaters dict with only the nodes that
+                # are leaders of at least one topic - i.e. the ones
+                # we will be sending requests to.
+                # Removes old nodes, and adds empty dicts for new nodes.
+                # Values will be populated/updated with values we get
+                # in the response from each node.
+                # Topics/Partitions on old nodes may disappear briefly
+                # before they reappear on their new nodes.
+                new_node_lowwaters = {}
+                for node in nodes.keys():
+                    new_node_lowwaters[node] = node_lowwaters.get(node, {})
+
+                node_lowwaters = new_node_lowwaters
 
                 for node, topic_map in nodes.items():
                     logging.debug('Requesting low-water marks from %(node)s',
@@ -367,11 +593,21 @@ def main():
                          for topic, partitions in topic_map.items()]
                     )
                     f = client.send(node, request)
-                    f.add_callback(update_lowwater)
+                    f.add_callback(update_lowwater, node)
         except Exception:
             logging.exception('Error requesting low-water marks')
         finally:
             client.schedule(partial(fetch_lowwater, next_time), next_time)
+
+    REGISTRY.register(HighwaterCollector())
+    REGISTRY.register(LowwaterCollector())
+    REGISTRY.register(ConsumerOffsetCollector())
+    REGISTRY.register(ConsumerLagCollector())
+    REGISTRY.register(ConsumerLeadCollector())
+    REGISTRY.register(ConsumerCommitsCollector())
+    REGISTRY.register(ExporterOffsetCollector())
+    REGISTRY.register(ExporterLagCollector())
+    REGISTRY.register(ExporterLeadCollector())
 
     now_time = time.time()
 
@@ -379,43 +615,37 @@ def main():
     fetch_highwater(now_time)
     fetch_lowwater(now_time)
 
+    global offsets
+    global commits
+    global exporter_offsets
+
     try:
         while True:
             for message in consumer:
-                update_gauge(
-                    metric_name=METRIC_PREFIX + 'exporter_offset',
-                    label_dict={
-                        'partition': message.partition
-                    },
-                    value=message.offset,
-                    doc='The current offset of the exporter consumer in a partition of the __consumer_offsets topic.'
-                )
+                exporter_partition = message.partition
+                exporter_offset = message.offset
+                exporter_offsets = ensure_dict_key(exporter_offsets, exporter_partition, exporter_offset)
+                exporter_offsets[exporter_partition] = exporter_offset
 
                 if message.key and message.value:
                     key = parse_key(message.key)
                     if key:
                         value = parse_value(message.value)
 
-                        update_gauge(
-                            metric_name=METRIC_PREFIX + 'offset',
-                            label_dict={
-                                'group': key[1],
-                                'topic': key[2],
-                                'partition': key[3]
-                            },
-                            value=value[1],
-                            doc='The current offset of a consumer group in a partition of a topic.'
-                        )
+                        group = key[1]
+                        topic = key[2]
+                        partition = key[3]
+                        offset = value[1]
 
-                        increment_counter(
-                            metric_name=METRIC_PREFIX + 'commits',
-                            label_dict={
-                                'group': key[1],
-                                'topic': key[2],
-                                'partition': key[3]
-                            },
-                            doc='The number of commit messages read by the exporter consumer from a consumer group for a partition of a topic.'
-                        )
+                        offsets = ensure_dict_key(offsets, group, {})
+                        offsets[group] = ensure_dict_key(offsets[group], topic, {})
+                        offsets[group][topic] = ensure_dict_key(offsets[group][topic], partition, offset)
+                        offsets[group][topic][partition] = offset
+
+                        commits = ensure_dict_key(commits, group, {})
+                        commits[group] = ensure_dict_key(commits[group], topic, {})
+                        commits[group][topic] = ensure_dict_key(commits[group][topic], partition, 0)
+                        commits[group][topic][partition] += 1
 
     except KeyboardInterrupt:
         pass
