@@ -221,6 +221,36 @@ class ExporterOffsetCollector(object):
         yield from gauge_generator(metrics)
 
 
+class ExporterLagCollector(object):
+
+    def collect(self):
+        topic = '__consumer_offsets'
+        highwaters = build_highwaters()
+        metrics = [
+            (METRIC_PREFIX + 'exporter_lag', 'How far the exporter consumer is behind the head of a partition of the __consumer_offsets topic.',
+             ('partition',), (partition,),
+             highwaters[topic][partition] - offset)
+            for partition, offset in exporter_offsets.items()
+            if topic in highwaters and partition in highwaters[topic]
+        ]
+        yield from gauge_generator(metrics)
+
+
+class ExporterLeadCollector(object):
+
+    def collect(self):
+        topic = '__consumer_offsets'
+        lowwaters = build_lowwaters()
+        metrics = [
+            (METRIC_PREFIX + 'exporter_lead', 'How far the exporter consumer is ahead of the tail of a partition of the __consumer_offsets topic.',
+             ('partition',), (partition,),
+             offset - lowwaters[topic][partition])
+            for partition, offset in exporter_offsets.items()
+            if topic in lowwaters and partition in lowwaters[topic]
+        ]
+        yield from gauge_generator(metrics)
+
+
 def shutdown():
     logging.info('Shutting down')
     sys.exit(1)
@@ -576,6 +606,8 @@ def main():
     REGISTRY.register(ConsumerLeadCollector())
     REGISTRY.register(ConsumerCommitsCollector())
     REGISTRY.register(ExporterOffsetCollector())
+    REGISTRY.register(ExporterLagCollector())
+    REGISTRY.register(ExporterLeadCollector())
 
     now_time = time.time()
 
