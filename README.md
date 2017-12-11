@@ -25,7 +25,7 @@ Run with the `-h` flag to see details on all the available arguments.
 Prometheus metrics can then be scraped from the `/metrics` path, e.g. http://localhost:9208/metrics. Metrics are currently actually exposed on all paths, but this may change in the future and `/metrics` is the standard path for Prometheus metric endpoints.
 
 # Metrics
-Four main metrics are exported:
+Nine main metrics are exported:
 
 ### `kafka_consumer_group_offset{group, topic, partition}`
 The latest committed offset of a consumer group in a given partition of a topic, as read from `__consumer_offsets`. Useful for calculating the consumption rate and lag of a consumer group.
