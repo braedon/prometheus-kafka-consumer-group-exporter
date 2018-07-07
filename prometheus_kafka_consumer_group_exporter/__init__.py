@@ -3,11 +3,9 @@ import javaproperties
 import logging
 import signal
 import sys
-import time
 
 import kafka.errors as Errors
 
-from functools import partial
 from jog import JogFormatter
 from kafka import KafkaConsumer
 from kafka.protocol.metadata import MetadataRequest
@@ -15,6 +13,8 @@ from kafka.protocol.offset import OffsetRequest, OffsetResetStrategy
 from prometheus_client import start_http_server
 from prometheus_client.core import GaugeMetricFamily, CounterMetricFamily, REGISTRY
 from struct import unpack_from
+
+from . import scheduler
 
 METRIC_PREFIX = 'kafka_consumer_group_'
 
@@ -486,10 +486,9 @@ def main():
         global node_lowwaters
         node_lowwaters[node] = lowwaters
 
-    def fetch_topics(this_time):
+    def fetch_topics():
         logging.info('Requesting topics and partition assignments')
 
-        next_time = this_time + topic_interval
         try:
             node = client.least_loaded_node()
 
@@ -500,14 +499,13 @@ def main():
             request = MetadataRequest[api_version](None)
             f = client.send(node, request)
             f.add_callback(update_topics, api_version)
+
         except Exception:
             logging.exception('Error requesting topics and partition assignments')
-        finally:
-            client.schedule(partial(fetch_topics, next_time), next_time)
 
-    def fetch_highwater(this_time):
+    def fetch_highwater():
         logging.info('Requesting high-water marks')
-        next_time = this_time + high_water_interval
+
         try:
             if topics:
                 nodes = {}
@@ -547,14 +545,12 @@ def main():
                     )
                     f = client.send(node, request)
                     f.add_callback(update_highwater, node)
+
         except Exception:
             logging.exception('Error requesting high-water marks')
-        finally:
-            client.schedule(partial(fetch_highwater, next_time), next_time)
 
-    def fetch_lowwater(this_time):
+    def fetch_lowwater():
         logging.info('Requesting low-water marks')
-        next_time = this_time + low_water_interval
         try:
             if topics:
                 nodes = {}
@@ -594,10 +590,9 @@ def main():
                     )
                     f = client.send(node, request)
                     f.add_callback(update_lowwater, node)
+
         except Exception:
             logging.exception('Error requesting low-water marks')
-        finally:
-            client.schedule(partial(fetch_lowwater, next_time), next_time)
 
     REGISTRY.register(HighwaterCollector())
     REGISTRY.register(LowwaterCollector())
@@ -609,11 +604,10 @@ def main():
     REGISTRY.register(ExporterLagCollector())
     REGISTRY.register(ExporterLeadCollector())
 
-    now_time = time.time()
-
-    fetch_topics(now_time)
-    fetch_highwater(now_time)
-    fetch_lowwater(now_time)
+    scheduled_jobs = []
+    scheduled_jobs = scheduler.add_scheduled_job(scheduled_jobs, topic_interval, fetch_topics)
+    scheduled_jobs = scheduler.add_scheduled_job(scheduled_jobs, high_water_interval, fetch_highwater)
+    scheduled_jobs = scheduler.add_scheduled_job(scheduled_jobs, low_water_interval, fetch_lowwater)
 
     global offsets
     global commits
@@ -646,6 +640,15 @@ def main():
                         commits[group] = ensure_dict_key(commits[group], topic, {})
                         commits[group][topic] = ensure_dict_key(commits[group][topic], partition, 0)
                         commits[group][topic][partition] += 1
+
+                # Check if we need to run any scheduled jobs
+                # each message.
+                scheduled_jobs = scheduler.run_scheduled_jobs(scheduled_jobs)
+
+            # Also check if we need to run any scheduled jobs
+            # each time the consumer times out, in case there
+            # aren't any messages to consume.
+            scheduled_jobs = scheduler.run_scheduled_jobs(scheduled_jobs)
 
     except KeyboardInterrupt:
         pass
