@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='prometheus-kafka-consumer-group-exporter',
-    version='0.3.1',
+    version='0.4.0.dev1',
     description='Kafka consumer group Prometheus exporter',
     url='https://github.com/Braedon/prometheus-kafka-consumer-group-exporter',
     author='Braedon Vickers',
@@ -20,7 +20,7 @@ setup(
     keywords='monitoring prometheus exporter kafka consumer group',
     packages=find_packages(),
     install_requires=[
-        'kafka-python >= 1.3, < 1.4',
+        'kafka-python >= 1.3',
         'jog',
         'prometheus-client',
         'javaproperties'
