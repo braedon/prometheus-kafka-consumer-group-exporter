@@ -132,6 +132,7 @@ def main():
     REGISTRY.register(collectors.ConsumerLagCollector())
     REGISTRY.register(collectors.ConsumerLeadCollector())
     REGISTRY.register(collectors.ConsumerCommitsCollector())
+    REGISTRY.register(collectors.ConsumerTimestampCollector())
     REGISTRY.register(collectors.ExporterOffsetCollector())
     REGISTRY.register(collectors.ExporterLagCollector())
     REGISTRY.register(collectors.ExporterLeadCollector())
@@ -143,6 +144,7 @@ def main():
             for message in consumer:
                 offsets = collectors.get_offsets()
                 commits = collectors.get_commits()
+                timestamps = collectors.get_timestamps()
                 exporter_offsets = collectors.get_exporter_offsets()
 
                 exporter_partition = message.partition
@@ -160,6 +162,7 @@ def main():
                         topic = key[2]
                         partition = key[3]
                         offset = value[1]
+                        timestamp = message.timestamp / 1000
 
                         offsets = ensure_dict_key(offsets, group, {})
                         offsets[group] = ensure_dict_key(offsets[group], topic, {})
@@ -172,6 +175,12 @@ def main():
                         commits[group][topic] = ensure_dict_key(commits[group][topic], partition, 0)
                         commits[group][topic][partition] += 1
                         collectors.set_commits(commits)
+
+                        timestamps = ensure_dict_key(timestamps, group, {})
+                        timestamps[group] = ensure_dict_key(timestamps[group], topic, {})
+                        timestamps[group][topic] = ensure_dict_key(timestamps[group][topic], partition, 0)
+                        timestamps[group][topic][partition] = timestamp
+                        collectors.set_timestamps(timestamps)
 
                 # Check if we need to run any scheduled jobs
                 # each message.
