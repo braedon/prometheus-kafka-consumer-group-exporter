@@ -155,23 +155,23 @@ def main():
                     key = parse_key(message.key)
                     if key:
                         value = parse_value(message.value)
+                        if value:
+                            group = key[1]
+                            topic = key[2]
+                            partition = key[3]
+                            offset = value[1]
 
-                        group = key[1]
-                        topic = key[2]
-                        partition = key[3]
-                        offset = value[1]
+                            offsets = ensure_dict_key(offsets, group, {})
+                            offsets[group] = ensure_dict_key(offsets[group], topic, {})
+                            offsets[group][topic] = ensure_dict_key(offsets[group][topic], partition, offset)
+                            offsets[group][topic][partition] = offset
+                            collectors.set_offsets(offsets)
 
-                        offsets = ensure_dict_key(offsets, group, {})
-                        offsets[group] = ensure_dict_key(offsets[group], topic, {})
-                        offsets[group][topic] = ensure_dict_key(offsets[group][topic], partition, offset)
-                        offsets[group][topic][partition] = offset
-                        collectors.set_offsets(offsets)
-
-                        commits = ensure_dict_key(commits, group, {})
-                        commits[group] = ensure_dict_key(commits[group], topic, {})
-                        commits[group][topic] = ensure_dict_key(commits[group][topic], partition, 0)
-                        commits[group][topic][partition] += 1
-                        collectors.set_commits(commits)
+                            commits = ensure_dict_key(commits, group, {})
+                            commits[group] = ensure_dict_key(commits[group], topic, {})
+                            commits[group][topic] = ensure_dict_key(commits[group][topic], partition, 0)
+                            commits[group][topic][partition] += 1
+                            collectors.set_commits(commits)
 
                 # Check if we need to run any scheduled jobs
                 # each message.
