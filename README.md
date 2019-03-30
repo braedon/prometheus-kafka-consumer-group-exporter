@@ -25,7 +25,7 @@ Run with the `-h` flag to see details on all the available arguments.
 Prometheus metrics can then be scraped from the `/metrics` path, e.g. http://localhost:9208/metrics. Metrics are currently actually exposed on all paths, but this may change in the future and `/metrics` is the standard path for Prometheus metric endpoints.
 
 # Metrics
-Nine main metrics are exported:
+Ten main metrics are exported:
 
 ### `kafka_consumer_group_offset{group, topic, partition}`
 The latest committed offset of a consumer group in a given partition of a topic, as read from `__consumer_offsets`. Useful for calculating the consumption rate and lag of a consumer group.
@@ -38,6 +38,9 @@ The lead of a consumer group ahead of the tail of a given partition of a topic -
 
 ### `kafka_consumer_group_commits{group, topic, partition}`
 The number of commit messages read from `__consumer_offsets` by the exporter from a consumer group for a given partition of a topic. Useful for calculating the commit rate of a consumer group (i.e. are the consumers working).
+
+### `kafka_consumer_group_commit_timestamp{group, topic, partition}`
+The timestamp (in seconds since January 1, 1970 UTC) of the latest commit from a consumer group for a given partition of a topic. Useful to determine how long a consumer has been inactive.
 
 ### `kafka_consumer_group_exporter_offset{partition}`
 The offset of the exporter's consumer in each partition of the `__consumer_offset` topic. Useful for calculating the lag of the exporter.

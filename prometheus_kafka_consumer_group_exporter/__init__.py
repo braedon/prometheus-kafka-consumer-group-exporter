@@ -134,6 +134,7 @@ def main():
     REGISTRY.register(collectors.ConsumerLagCollector())
     REGISTRY.register(collectors.ConsumerLeadCollector())
     REGISTRY.register(collectors.ConsumerCommitsCollector())
+    REGISTRY.register(collectors.ConsumerCommitTimestampCollector())
     REGISTRY.register(collectors.ExporterOffsetCollector())
     REGISTRY.register(collectors.ExporterLagCollector())
     REGISTRY.register(collectors.ExporterLeadCollector())
@@ -145,6 +146,7 @@ def main():
             for message in consumer:
                 offsets = collectors.get_offsets()
                 commits = collectors.get_commits()
+                commit_timestamps = collectors.get_commit_timestamps()
                 exporter_offsets = collectors.get_exporter_offsets()
 
                 exporter_partition = message.partition
@@ -162,6 +164,7 @@ def main():
                             topic = key[2]
                             partition = key[3]
                             offset = value[1]
+                            commit_timestamp = value[3] / 1000
 
                             offsets = ensure_dict_key(offsets, group, {})
                             offsets[group] = ensure_dict_key(offsets[group], topic, {})
@@ -174,6 +177,12 @@ def main():
                             commits[group][topic] = ensure_dict_key(commits[group][topic], partition, 0)
                             commits[group][topic][partition] += 1
                             collectors.set_commits(commits)
+
+                            commit_timestamps = ensure_dict_key(commit_timestamps, group, {})
+                            commit_timestamps[group] = ensure_dict_key(commit_timestamps[group], topic, {})
+                            commit_timestamps[group][topic] = ensure_dict_key(commit_timestamps[group][topic], partition, 0)
+                            commit_timestamps[group][topic][partition] = commit_timestamp
+                            collectors.set_commit_timestamps(commit_timestamps)
 
                 # Check if we need to run any scheduled jobs
                 # each message.
