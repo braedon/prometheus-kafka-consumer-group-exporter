@@ -164,7 +164,7 @@ def main():
                             topic = key[2]
                             partition = key[3]
                             offset = value[1]
-                            commit_timestamp = message.timestamp / 1000
+                            commit_timestamp = value[3] / 1000
 
                             offsets = ensure_dict_key(offsets, group, {})
                             offsets[group] = ensure_dict_key(offsets[group], topic, {})
