@@ -7,7 +7,7 @@ METRIC_PREFIX = 'kafka_consumer_group_'
 # Globals
 offsets = {}  # group->topic->partition->offset
 commits = {}  # group->topic->partition->commits
-timestamps = {}  # group->topic->partition->timestamp
+commit_timestamps = {}  # group->topic->partition->commit_timestamp
 exporter_offsets = {}  # partition->offset
 
 
@@ -29,13 +29,13 @@ def set_commits(new_commits):
     commits = new_commits
 
 
-def get_timestamps():
-    return timestamps
+def get_commit_timestamps():
+    return commit_timestamps
 
 
-def set_timestamps(new_timestamps):
-    global timestamps
-    timestamps = new_timestamps
+def set_commit_timestamps(new_commit_timestamps):
+    global commit_timestamps
+    commit_timestamps = new_commit_timestamps
 
 
 def get_exporter_offsets():
@@ -186,16 +186,16 @@ class ConsumerCommitsCollector(object):
         yield from counter_generator(metrics)
 
 
-class ConsumerTimestampCollector(object):
+class ConsumerCommitTimestampCollector(object):
 
     def collect(self):
         metrics = [
-            (METRIC_PREFIX + 'timestamp_seconds', 'The latest commit timestamp from a consumer group for a partition of a topic.',
+            (METRIC_PREFIX + 'commit_timestamp', 'The timestamp of the latest commit from a consumer group for a partition of a topic.',
              ('group', 'topic', 'partition'), (group, topic, partition),
-             timestamp)
-            for group, topics in timestamps.items()
+             commit_timestamp)
+            for group, topics in commit_timestamps.items()
             for topic, partitions in topics.items()
-            for partition, timestamp in partitions.items()
+            for partition, commit_timestamp in partitions.items()
         ]
         yield from gauge_generator(metrics)
 

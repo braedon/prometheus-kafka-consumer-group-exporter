@@ -39,8 +39,8 @@ The lead of a consumer group ahead of the tail of a given partition of a topic -
 ### `kafka_consumer_group_commits{group, topic, partition}`
 The number of commit messages read from `__consumer_offsets` by the exporter from a consumer group for a given partition of a topic. Useful for calculating the commit rate of a consumer group (i.e. are the consumers working).
 
-### `kafka_consumer_group_timestamp_seconds{group, topic, partition}`
-The timestamp (in seconds) of the latest commits from a consumer group for a given partition of a topic. Useful to determine how long a consumer has been inactive.
+### `kafka_consumer_group_commit_timestamp{group, topic, partition}`
+The timestamp (in seconds since January 1, 1970 UTC) of the latest commit from a consumer group for a given partition of a topic. Useful to determine how long a consumer has been inactive.
 
 ### `kafka_consumer_group_exporter_offset{partition}`
 The offset of the exporter's consumer in each partition of the `__consumer_offset` topic. Useful for calculating the lag of the exporter.
