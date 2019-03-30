@@ -1,6 +1,6 @@
 Prometheus Kafka Consumer Group Exporter
 ====
-This Prometheus exporter consumes the `__consumer_offsets` topic of a Kafka cluser and exports the results as Prometheus gauge metrics. i.e. it shows the position of Kafka consumer groups, including their lag.
+This Prometheus exporter consumes the `__consumer_offsets` topic of a Kafka cluster and exports the results as Prometheus gauge metrics. i.e. it shows the position of Kafka consumer groups, including their lag.
 
 The high-water and low-water marks of the partitions of each topic are also exported.
 
