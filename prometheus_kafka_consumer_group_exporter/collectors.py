@@ -137,7 +137,7 @@ class ConsumerLagCollector(object):
         metrics = [
             (METRIC_PREFIX + 'lag', 'How far a consumer group\'s current offset is behind the head of a partition of a topic.',
              ('group', 'topic', 'partition'), (group, topic, partition),
-             highwaters[topic][partition] - offset)
+             max(highwaters[topic][partition] - offset, 0))
             for group, topics in offsets.items()
             for topic, partitions in topics.items()
             for partition, offset in partitions.items()
@@ -196,7 +196,7 @@ class ExporterLagCollector(object):
         metrics = [
             (METRIC_PREFIX + 'exporter_lag', 'How far the exporter consumer is behind the head of a partition of the __consumer_offsets topic.',
              ('partition',), (partition,),
-             highwaters[topic][partition] - offset)
+             max(highwaters[topic][partition] - offset, 0))
             for partition, offset in exporter_offsets.items()
             if topic in highwaters and partition in highwaters[topic]
         ]
