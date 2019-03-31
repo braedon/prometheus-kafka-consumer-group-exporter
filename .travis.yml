@@ -1,0 +1,21 @@
+language: python
+sudo: required
+dist: xenial
+python:
+  - "3.4"
+  - "3.5"
+  - "3.6"
+  - "3.7"
+script:
+  - python setup.py test
+after_success:
+  - if [[ $TRAVIS_PYTHON_VERSION == 3.7* ]]; then export RELEASE_SENTINEL=1; fi
+deploy:
+  provider: pypi
+  user: $PYPI_USERNAME
+  password: $PYPI_PASSWORD
+  distributions: "sdist bdist_wheel"
+  on:
+    tags: true
+    branch: master
+    condition: $RELEASE_SENTINEL = 1

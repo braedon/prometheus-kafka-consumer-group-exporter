@@ -7,6 +7,7 @@ METRIC_PREFIX = 'kafka_consumer_group_'
 # Globals
 offsets = {}  # group->topic->partition->offset
 commits = {}  # group->topic->partition->commits
+commit_timestamps = {}  # group->topic->partition->commit_timestamp
 exporter_offsets = {}  # partition->offset
 
 
@@ -26,6 +27,15 @@ def get_commits():
 def set_commits(new_commits):
     global commits
     commits = new_commits
+
+
+def get_commit_timestamps():
+    return commit_timestamps
+
+
+def set_commit_timestamps(new_commit_timestamps):
+    global commit_timestamps
+    commit_timestamps = new_commit_timestamps
 
 
 def get_exporter_offsets():
@@ -137,7 +147,7 @@ class ConsumerLagCollector(object):
         metrics = [
             (METRIC_PREFIX + 'lag', 'How far a consumer group\'s current offset is behind the head of a partition of a topic.',
              ('group', 'topic', 'partition'), (group, topic, partition),
-             highwaters[topic][partition] - offset)
+             max(highwaters[topic][partition] - offset, 0))
             for group, topics in offsets.items()
             for topic, partitions in topics.items()
             for partition, offset in partitions.items()
@@ -176,6 +186,20 @@ class ConsumerCommitsCollector(object):
         yield from counter_generator(metrics)
 
 
+class ConsumerCommitTimestampCollector(object):
+
+    def collect(self):
+        metrics = [
+            (METRIC_PREFIX + 'commit_timestamp', 'The timestamp of the latest commit from a consumer group for a partition of a topic.',
+             ('group', 'topic', 'partition'), (group, topic, partition),
+             commit_timestamp)
+            for group, topics in commit_timestamps.items()
+            for topic, partitions in topics.items()
+            for partition, commit_timestamp in partitions.items()
+        ]
+        yield from gauge_generator(metrics)
+
+
 class ExporterOffsetCollector(object):
 
     def collect(self):
@@ -196,7 +220,7 @@ class ExporterLagCollector(object):
         metrics = [
             (METRIC_PREFIX + 'exporter_lag', 'How far the exporter consumer is behind the head of a partition of the __consumer_offsets topic.',
              ('partition',), (partition,),
-             highwaters[topic][partition] - offset)
+             max(highwaters[topic][partition] - offset, 0))
             for partition, offset in exporter_offsets.items()
             if topic in highwaters and partition in highwaters[topic]
         ]

@@ -43,7 +43,7 @@ def main():
     parser = argparse.ArgumentParser(
         description='Export Kafka consumer offsets to Prometheus.')
     parser.add_argument(
-        '-b', '--bootstrap-brokers', default='localhost',
+        '-b', '--bootstrap-brokers',
         help='Addresses of brokers in a Kafka cluster to talk to.' +
         ' Brokers should be separated by commas e.g. broker1,broker2.' +
         ' Ports can be provided if non-standard (9092) e.g. brokers1:9999.' +
@@ -107,7 +107,9 @@ def main():
             consumer_config.update(converted_config)
 
     if args.bootstrap_brokers:
-        consumer_config['bootstrap_servers'] = args.bootstrap_brokers.split(',')
+        consumer_config['bootstrap_servers'] = args.bootstrap_brokers
+
+    consumer_config['bootstrap_servers'] = consumer_config['bootstrap_servers'].split(',')
 
     if args.from_start:
         consumer_config['auto_offset_reset'] = 'earliest'
@@ -132,17 +134,20 @@ def main():
     REGISTRY.register(collectors.ConsumerLagCollector())
     REGISTRY.register(collectors.ConsumerLeadCollector())
     REGISTRY.register(collectors.ConsumerCommitsCollector())
+    REGISTRY.register(collectors.ConsumerCommitTimestampCollector())
     REGISTRY.register(collectors.ExporterOffsetCollector())
     REGISTRY.register(collectors.ExporterLagCollector())
     REGISTRY.register(collectors.ExporterLeadCollector())
 
     scheduled_jobs = setup_fetch_jobs(topic_interval, high_water_interval, low_water_interval, client)
+    scheduler.run_scheduled_jobs(scheduled_jobs)
 
     try:
         while True:
             for message in consumer:
                 offsets = collectors.get_offsets()
                 commits = collectors.get_commits()
+                commit_timestamps = collectors.get_commit_timestamps()
                 exporter_offsets = collectors.get_exporter_offsets()
 
                 exporter_partition = message.partition
@@ -155,23 +160,30 @@ def main():
                     key = parse_key(message.key)
                     if key:
                         value = parse_value(message.value)
+                        if value:
+                            group = key[1]
+                            topic = key[2]
+                            partition = key[3]
+                            offset = value[1]
+                            commit_timestamp = value[3] / 1000
 
-                        group = key[1]
-                        topic = key[2]
-                        partition = key[3]
-                        offset = value[1]
+                            offsets = ensure_dict_key(offsets, group, {})
+                            offsets[group] = ensure_dict_key(offsets[group], topic, {})
+                            offsets[group][topic] = ensure_dict_key(offsets[group][topic], partition, offset)
+                            offsets[group][topic][partition] = offset
+                            collectors.set_offsets(offsets)
 
-                        offsets = ensure_dict_key(offsets, group, {})
-                        offsets[group] = ensure_dict_key(offsets[group], topic, {})
-                        offsets[group][topic] = ensure_dict_key(offsets[group][topic], partition, offset)
-                        offsets[group][topic][partition] = offset
-                        collectors.set_offsets(offsets)
+                            commits = ensure_dict_key(commits, group, {})
+                            commits[group] = ensure_dict_key(commits[group], topic, {})
+                            commits[group][topic] = ensure_dict_key(commits[group][topic], partition, 0)
+                            commits[group][topic][partition] += 1
+                            collectors.set_commits(commits)
 
-                        commits = ensure_dict_key(commits, group, {})
-                        commits[group] = ensure_dict_key(commits[group], topic, {})
-                        commits[group][topic] = ensure_dict_key(commits[group][topic], partition, 0)
-                        commits[group][topic][partition] += 1
-                        collectors.set_commits(commits)
+                            commit_timestamps = ensure_dict_key(commit_timestamps, group, {})
+                            commit_timestamps[group] = ensure_dict_key(commit_timestamps[group], topic, {})
+                            commit_timestamps[group][topic] = ensure_dict_key(commit_timestamps[group][topic], partition, 0)
+                            commit_timestamps[group][topic][partition] = commit_timestamp
+                            collectors.set_commit_timestamps(commit_timestamps)
 
                 # Check if we need to run any scheduled jobs
                 # each message.

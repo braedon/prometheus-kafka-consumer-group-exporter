@@ -62,10 +62,10 @@ def fetch_topics(client, callback):
 
 
 def fetch_highwater(client, callback):
-    logging.info('Requesting high-water marks')
-
     try:
         if topics:
+            logging.info('Requesting high-water marks')
+
             nodes = {}
             for topic, partition_map in topics.items():
                 for partition, leader in partition_map.items():
@@ -109,9 +109,10 @@ def fetch_highwater(client, callback):
 
 
 def fetch_lowwater(client, callback):
-    logging.info('Requesting low-water marks')
     try:
         if topics:
+            logging.info('Requesting low-water marks')
+
             nodes = {}
             for topic, partition_map in topics.items():
                 for partition, leader in partition_map.items():
@@ -228,7 +229,7 @@ def update_highwater(node, offsets):
 
 
 def update_lowwater(node, offsets):
-    logging.info('Received high-water marks from node {}'.format(node))
+    logging.info('Received low-water marks from node {}'.format(node))
 
     lowwaters = {}
     for topic, partitions in offsets.topics:

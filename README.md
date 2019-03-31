@@ -25,33 +25,36 @@ Run with the `-h` flag to see details on all the available arguments.
 Prometheus metrics can then be scraped from the `/metrics` path, e.g. http://localhost:9208/metrics. Metrics are currently actually exposed on all paths, but this may change in the future and `/metrics` is the standard path for Prometheus metric endpoints.
 
 # Metrics
-Nine main metrics are exported:
+Ten main metrics are exported:
 
-### `kafka_consumer_group_offset{group, topic, partition}`
+### `kafka_consumer_group_offset{group, topic, partition}` (gauge)
 The latest committed offset of a consumer group in a given partition of a topic, as read from `__consumer_offsets`. Useful for calculating the consumption rate and lag of a consumer group.
 
-### `kafka_consumer_group_lag{group, topic, partition}`
+### `kafka_consumer_group_lag{group, topic, partition}` (gauge)
 The lag of a consumer group behind the head of a given partition of a topic - the difference between `kafka_topic_highwater` and `kafka_consumer_group_offset`. Useful for checking if a consumer group is keeping up with a topic.
 
-### `kafka_consumer_group_lead{group, topic, partition}`
+### `kafka_consumer_group_lead{group, topic, partition}` (gauge)
 The lead of a consumer group ahead of the tail of a given partition of a topic - the difference between `kafka_consumer_group_offset` and `kafka_topic_lowwater`. Useful for checking if a consumer group is at risk of missing messages due to the cleaner.
 
-### `kafka_consumer_group_commits{group, topic, partition}`
+### `kafka_consumer_group_commits_total{group, topic, partition}` (counter)
 The number of commit messages read from `__consumer_offsets` by the exporter from a consumer group for a given partition of a topic. Useful for calculating the commit rate of a consumer group (i.e. are the consumers working).
 
-### `kafka_consumer_group_exporter_offset{partition}`
+### `kafka_consumer_group_commit_timestamp{group, topic, partition}` (gauge)
+The timestamp (in seconds since January 1, 1970 UTC) of the latest commit from a consumer group for a given partition of a topic. Useful to determine how long a consumer has been inactive.
+
+### `kafka_consumer_group_exporter_offset{partition}` (gauge)
 The offset of the exporter's consumer in each partition of the `__consumer_offset` topic. Useful for calculating the lag of the exporter.
 
-### `kafka_consumer_group_exporter_lag{partition}`
+### `kafka_consumer_group_exporter_lag{partition}` (gauge)
 The lag of the exporter's consumer behind the head of each partition of the `__consumer_offset` topic. Useful for checking if the exporter is keeping up with `__consumer_offset`.
 
-### `kafka_consumer_group_exporter_lead{partition}`
+### `kafka_consumer_group_exporter_lead{partition}` (gauge)
 The lead of the exporter's consumer ahead of the tail of each partition of the `__consumer_offset` topic. Useful for checking if the exporter is at risk of missing messages due to the cleaner.
 
-### `kafka_topic_highwater{topic, partition}`
+### `kafka_topic_highwater{topic, partition}` (gauge)
 The offset of the head of a given partition of a topic, as reported by the lead broker for the partition. Useful for calculating the production rate of the producers for a topic, and the lag of a consumer group (or the exporter itself).
 
-### `kafka_topic_lowwater{topic, partition}`
+### `kafka_topic_lowwater{topic, partition}` (gauge)
 The offset of the tail of a given partition of a topic, as reported by the lead broker for the partition. Useful for calculating the lead of a consumer group (or the exporter itself) - i.e. how far ahead of the cleaner the consumer group is.
 
 ## Lag

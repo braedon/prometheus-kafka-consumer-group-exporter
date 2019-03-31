@@ -1,4 +1,5 @@
-from struct import unpack_from
+import logging
+from struct import unpack_from, error as struct_error
 
 
 def read_short(bytes):
@@ -27,24 +28,34 @@ def read_string(bytes):
 
 
 def parse_key(bytes):
-    (version, remaining_key) = read_short(bytes)
-    if version == 1 or version == 0:
-        (group, remaining_key) = read_string(remaining_key)
-        (topic, remaining_key) = read_string(remaining_key)
-        (partition, remaining_key) = read_int(remaining_key)
-        return (version, group, topic, partition)
+    try:
+        (version, remaining_key) = read_short(bytes)
+        if version == 1 or version == 0:
+            (group, remaining_key) = read_string(remaining_key)
+            (topic, remaining_key) = read_string(remaining_key)
+            (partition, remaining_key) = read_int(remaining_key)
+            return (version, group, topic, partition)
+    except struct_error:
+        logging.exception('Failed to parse key from __consumer_offsets topic message.'
+                          ' Key: %(key_bytes)s',
+                          {'key_bytes': bytes})
 
 
 def parse_value(bytes):
-    (version, remaining_key) = read_short(bytes)
-    if version == 0:
-        (offset, remaining_key) = read_long_long(remaining_key)
-        (metadata, remaining_key) = read_string(remaining_key)
-        (timestamp, remaining_key) = read_long_long(remaining_key)
-        return (version, offset, metadata, timestamp)
-    elif version == 1:
-        (offset, remaining_key) = read_long_long(remaining_key)
-        (metadata, remaining_key) = read_string(remaining_key)
-        (commit_timestamp, remaining_key) = read_long_long(remaining_key)
-        (expire_timestamp, remaining_key) = read_long_long(remaining_key)
-        return (version, offset, metadata, commit_timestamp, expire_timestamp)
+    try:
+        (version, remaining_key) = read_short(bytes)
+        if version == 0:
+            (offset, remaining_key) = read_long_long(remaining_key)
+            (metadata, remaining_key) = read_string(remaining_key)
+            (timestamp, remaining_key) = read_long_long(remaining_key)
+            return (version, offset, metadata, timestamp)
+        elif version == 1:
+            (offset, remaining_key) = read_long_long(remaining_key)
+            (metadata, remaining_key) = read_string(remaining_key)
+            (commit_timestamp, remaining_key) = read_long_long(remaining_key)
+            (expire_timestamp, remaining_key) = read_long_long(remaining_key)
+            return (version, offset, metadata, commit_timestamp, expire_timestamp)
+    except struct_error:
+        logging.exception('Failed to parse value from __consumer_offsets topic message.'
+                          ' Value: %(value_bytes)s',
+                          {'value_bytes': bytes})
