@@ -140,6 +140,7 @@ def main():
     REGISTRY.register(collectors.ExporterLeadCollector())
 
     scheduled_jobs = setup_fetch_jobs(topic_interval, high_water_interval, low_water_interval, client)
+    scheduler.run_scheduled_jobs(scheduled_jobs)
 
     try:
         while True:
