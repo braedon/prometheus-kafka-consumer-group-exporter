@@ -157,15 +157,17 @@ def main():
                 collectors.set_exporter_offsets(exporter_offsets)
 
                 if message.key and message.value:
-                    key = parse_key(message.key)
-                    if key:
-                        value = parse_value(message.value)
-                        if value:
-                            group = key[1]
-                            topic = key[2]
-                            partition = key[3]
-                            offset = value[1]
-                            commit_timestamp = value[3] / 1000
+                    key_dict = parse_key(message.key)
+                    # Only key versions 0 and 1 are offset commit messages.
+                    # Ignore other versions.
+                    if key_dict is not None and key_dict['version'] in (0, 1):
+                        value_dict = parse_value(message.value)
+                        if value_dict is not None:
+                            group = key_dict['group']
+                            topic = key_dict['topic']
+                            partition = key_dict['partition']
+                            offset = value_dict['offset']
+                            commit_timestamp = value_dict['commit_timestamp'] / 1000
 
                             offsets = ensure_dict_key(offsets, group, {})
                             offsets[group] = ensure_dict_key(offsets[group], topic, {})

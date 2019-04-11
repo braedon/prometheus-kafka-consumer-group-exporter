@@ -30,11 +30,27 @@ def read_string(bytes):
 def parse_key(bytes):
     try:
         (version, remaining_key) = read_short(bytes)
+        key_dict = {'version': version}
+
+        # These two versions are for offset commit messages.
         if version == 1 or version == 0:
-            (group, remaining_key) = read_string(remaining_key)
-            (topic, remaining_key) = read_string(remaining_key)
-            (partition, remaining_key) = read_int(remaining_key)
-            return (version, group, topic, partition)
+            key_dict['group'], remaining_key = read_string(remaining_key)
+            key_dict['topic'], remaining_key = read_string(remaining_key)
+            key_dict['partition'], remaining_key = read_int(remaining_key)
+
+        # This version is for group metadata messages.
+        # (we don't support parsing their values currently)
+        elif version == 2:
+            key_dict['group'], remaining_key = read_string(remaining_key)
+
+        else:
+            logging.error('Can\'t parse __consumer_offsets topic message key with'
+                          ' unsupported version %(version)s.',
+                          {'version': version})
+            return None
+
+        return key_dict
+
     except struct_error:
         logging.exception('Failed to parse key from __consumer_offsets topic message.'
                           ' Key: %(key_bytes)s',
@@ -44,18 +60,39 @@ def parse_key(bytes):
 def parse_value(bytes):
     try:
         (version, remaining_key) = read_short(bytes)
+        value_dict = {'version': version}
+
         if version == 0:
-            (offset, remaining_key) = read_long_long(remaining_key)
-            (metadata, remaining_key) = read_string(remaining_key)
-            (timestamp, remaining_key) = read_long_long(remaining_key)
-            return (version, offset, metadata, timestamp)
+            value_dict['offset'], remaining_key = read_long_long(remaining_key)
+            value_dict['metadata'], remaining_key = read_string(remaining_key)
+            value_dict['timestamp'], remaining_key = read_long_long(remaining_key)
+
         elif version == 1:
-            (offset, remaining_key) = read_long_long(remaining_key)
-            (metadata, remaining_key) = read_string(remaining_key)
-            (commit_timestamp, remaining_key) = read_long_long(remaining_key)
-            (expire_timestamp, remaining_key) = read_long_long(remaining_key)
-            return (version, offset, metadata, commit_timestamp, expire_timestamp)
-    except struct_error:
+            value_dict['offset'], remaining_key = read_long_long(remaining_key)
+            value_dict['metadata'], remaining_key = read_string(remaining_key)
+            value_dict['commit_timestamp'], remaining_key = read_long_long(remaining_key)
+            value_dict['expire_timestamp'], remaining_key = read_long_long(remaining_key)
+
+        elif version == 2:
+            value_dict['offset'], remaining_key = read_long_long(remaining_key)
+            value_dict['metadata'], remaining_key = read_string(remaining_key)
+            value_dict['commit_timestamp'], remaining_key = read_long_long(remaining_key)
+
+        elif version == 3:
+            value_dict['offset'], remaining_key = read_long_long(remaining_key)
+            value_dict['leader_epoch'], remaining_key = read_int(remaining_key)
+            value_dict['metadata'], remaining_key = read_string(remaining_key)
+            value_dict['commit_timestamp'], remaining_key = read_long_long(remaining_key)
+
+        else:
+            logging.error('Can\'t parse __consumer_offsets topic message value with'
+                          ' unsupported version %(version)s.',
+                          {'version': version})
+            return None
+
+        return value_dict
+
+    except struct_error as e:
         logging.exception('Failed to parse value from __consumer_offsets topic message.'
                           ' Value: %(value_bytes)s',
                           {'value_bytes': bytes})
