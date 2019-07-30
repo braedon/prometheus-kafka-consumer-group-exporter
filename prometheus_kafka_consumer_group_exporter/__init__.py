@@ -156,36 +156,59 @@ def main():
                 exporter_offsets[exporter_partition] = exporter_offset
                 collectors.set_exporter_offsets(exporter_offsets)
 
-                if message.key and message.value:
+                if message.key:
                     key_dict = parse_key(message.key)
                     # Only key versions 0 and 1 are offset commit messages.
                     # Ignore other versions.
                     if key_dict is not None and key_dict['version'] in (0, 1):
-                        value_dict = parse_value(message.value)
-                        if value_dict is not None:
+
+                        if message.value:
+                            value_dict = parse_value(message.value)
+                            if value_dict is not None:
+                                group = key_dict['group']
+                                topic = key_dict['topic']
+                                partition = key_dict['partition']
+                                offset = value_dict['offset']
+                                commit_timestamp = value_dict['commit_timestamp'] / 1000
+
+                                offsets = ensure_dict_key(offsets, group, {})
+                                offsets[group] = ensure_dict_key(offsets[group], topic, {})
+                                offsets[group][topic] = ensure_dict_key(offsets[group][topic], partition, offset)
+                                offsets[group][topic][partition] = offset
+                                collectors.set_offsets(offsets)
+
+                                commits = ensure_dict_key(commits, group, {})
+                                commits[group] = ensure_dict_key(commits[group], topic, {})
+                                commits[group][topic] = ensure_dict_key(commits[group][topic], partition, 0)
+                                commits[group][topic][partition] += 1
+                                collectors.set_commits(commits)
+
+                                commit_timestamps = ensure_dict_key(commit_timestamps, group, {})
+                                commit_timestamps[group] = ensure_dict_key(commit_timestamps[group], topic, {})
+                                commit_timestamps[group][topic] = ensure_dict_key(commit_timestamps[group][topic], partition, 0)
+                                commit_timestamps[group][topic][partition] = commit_timestamp
+                                collectors.set_commit_timestamps(commit_timestamps)
+
+                        else:
+                            # The group has been removed, so we should not report metrics
                             group = key_dict['group']
                             topic = key_dict['topic']
                             partition = key_dict['partition']
-                            offset = value_dict['offset']
-                            commit_timestamp = value_dict['commit_timestamp'] / 1000
 
-                            offsets = ensure_dict_key(offsets, group, {})
-                            offsets[group] = ensure_dict_key(offsets[group], topic, {})
-                            offsets[group][topic] = ensure_dict_key(offsets[group][topic], partition, offset)
-                            offsets[group][topic][partition] = offset
-                            collectors.set_offsets(offsets)
+                            if group in offsets:
+                                if topic in offsets[group]:
+                                    if partition in offsets[group][topic]:
+                                        del offsets[group][topic][partition]
 
-                            commits = ensure_dict_key(commits, group, {})
-                            commits[group] = ensure_dict_key(commits[group], topic, {})
-                            commits[group][topic] = ensure_dict_key(commits[group][topic], partition, 0)
-                            commits[group][topic][partition] += 1
-                            collectors.set_commits(commits)
+                            if group in commits:
+                                if topic in commits[group]:
+                                    if partition in commits[group][topic]:
+                                        del commits[group][topic][partition]
 
-                            commit_timestamps = ensure_dict_key(commit_timestamps, group, {})
-                            commit_timestamps[group] = ensure_dict_key(commit_timestamps[group], topic, {})
-                            commit_timestamps[group][topic] = ensure_dict_key(commit_timestamps[group][topic], partition, 0)
-                            commit_timestamps[group][topic][partition] = commit_timestamp
-                            collectors.set_commit_timestamps(commit_timestamps)
+                            if group in commit_timestamps:
+                                if topic in commit_timestamps[group]:
+                                    if partition in commit_timestamps[group][topic]:
+                                        del commit_timestamps[group][topic][partition]
 
                 elif message.key and not message.value:
                     # The group has been removed, so we should not report metrics
