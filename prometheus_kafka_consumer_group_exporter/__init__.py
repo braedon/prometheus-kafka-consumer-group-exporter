@@ -187,6 +187,29 @@ def main():
                             commit_timestamps[group][topic][partition] = commit_timestamp
                             collectors.set_commit_timestamps(commit_timestamps)
 
+                elif message.key and not message.value:
+                    # The group has been removed, so we should not report metrics
+                    key_dict = parse_key(message.key)
+                    if key_dict is not None and key_dict['version'] in (0, 1):
+                        group = key_dict['group']
+                        topic = key_dict['topic']
+                        partition = key_dict['partition']
+
+                        if group in offsets:
+                            if topic in offsets[group]:
+                                if partition in offsets[group][topic]:
+                                    del offsets[group][topic][partition]
+
+                        if group in commits:
+                            if topic in commits[group]:
+                                if partition in commits[group][topic]:
+                                    del commits[group][topic][partition]
+                        
+                        if group in commit_timestamps:
+                            if topic in commit_timestamps[group]:
+                                if partition in commit_timestamps[group][topic]:
+                                    del commit_timestamps[group][topic][partition]
+
                 # Check if we need to run any scheduled jobs
                 # each message.
                 scheduled_jobs = scheduler.run_scheduled_jobs(scheduled_jobs)
