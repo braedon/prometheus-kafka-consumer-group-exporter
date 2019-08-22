@@ -44,7 +44,7 @@ def parse_key(bytes):
             key_dict['group'], remaining_key = read_string(remaining_key)
 
         else:
-            logging.error('Can\'t parse __consumer_offsets topic message key with'
+            logging.warning('Can\'t parse __consumer_offsets topic message key with'
                           ' unsupported version %(version)s.',
                           {'version': version})
             return None
@@ -52,9 +52,10 @@ def parse_key(bytes):
         return key_dict
 
     except struct_error:
-        logging.exception('Failed to parse key from __consumer_offsets topic message.'
+        logging.warning('Failed to parse key from __consumer_offsets topic message.'
                           ' Key: %(key_bytes)s',
-                          {'key_bytes': bytes})
+                          {'key_bytes': bytes},
+                          exc_info=True)
 
 
 def parse_value(bytes):
@@ -85,7 +86,7 @@ def parse_value(bytes):
             value_dict['commit_timestamp'], remaining_key = read_long_long(remaining_key)
 
         else:
-            logging.error('Can\'t parse __consumer_offsets topic message value with'
+            logging.warning('Can\'t parse __consumer_offsets topic message value with'
                           ' unsupported version %(version)s.',
                           {'version': version})
             return None
@@ -93,6 +94,7 @@ def parse_value(bytes):
         return value_dict
 
     except struct_error as e:
-        logging.exception('Failed to parse value from __consumer_offsets topic message.'
+        logging.warning('Failed to parse value from __consumer_offsets topic message.'
                           ' Value: %(value_bytes)s',
-                          {'value_bytes': bytes})
+                          {'value_bytes': bytes},
+                          exc_info=True)
