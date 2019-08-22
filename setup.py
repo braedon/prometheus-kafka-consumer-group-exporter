@@ -23,7 +23,7 @@ setup(
     keywords='monitoring prometheus exporter kafka consumer group',
     packages=find_packages(),
     install_requires=[
-        'kafka-python >= 1.3',
+        'kafka-python == 1.4.4',
         'jog',
         'prometheus-client >= 0.6.0',
         'javaproperties'
