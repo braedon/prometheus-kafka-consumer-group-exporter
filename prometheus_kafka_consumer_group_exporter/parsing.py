@@ -45,8 +45,8 @@ def parse_key(bytes):
 
         else:
             logging.error('Can\'t parse __consumer_offsets topic message key with'
-                            ' unsupported version %(version)s.',
-                            {'version': version})
+                          ' unsupported version %(version)s.',
+                          {'version': version})
             return None
 
         return key_dict
@@ -87,8 +87,8 @@ def parse_value(bytes):
 
         else:
             logging.error('Can\'t parse __consumer_offsets topic message value with'
-                            ' unsupported version %(version)s.',
-                            {'version': version})
+                          ' unsupported version %(version)s.',
+                          {'version': version})
             return None
 
         return value_dict
