@@ -214,16 +214,13 @@ class ExporterOffsetCollector(object):
 
 class ExporterLagCollector(object):
 
-    # Subtracting the exporter's offset from the highwater will be off by one, since
-    # the highwater is the offset of the next message, whereas the exporter's offset
-    # is the offset of what it has actually consumed. Therefore we must subtract 1.
     def collect(self):
         topic = '__consumer_offsets'
         highwaters = build_highwaters()
         metrics = [
             (METRIC_PREFIX + 'exporter_lag', 'How far the exporter consumer is behind the head of a partition of the __consumer_offsets topic.',
              ('partition',), (partition,),
-             max(highwaters[topic][partition] - offset - 1, 0))
+             max(highwaters[topic][partition] - offset, 0))
             for partition, offset in exporter_offsets.items()
             if topic in highwaters and partition in highwaters[topic]
         ]
