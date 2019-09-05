@@ -150,8 +150,10 @@ def main():
                 commit_timestamps = collectors.get_commit_timestamps()
                 exporter_offsets = collectors.get_exporter_offsets()
 
+                # Commits store the offset a consumer should read from next, 
+                # so we need to add one to the current offset for semantic parity
                 exporter_partition = message.partition
-                exporter_offset = message.offset
+                exporter_offset = message.offset + 1
                 exporter_offsets = ensure_dict_key(exporter_offsets, exporter_partition, exporter_offset)
                 exporter_offsets[exporter_partition] = exporter_offset
                 collectors.set_exporter_offsets(exporter_offsets)
