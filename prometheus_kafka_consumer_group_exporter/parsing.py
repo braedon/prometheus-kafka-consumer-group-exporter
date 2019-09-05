@@ -52,9 +52,10 @@ def parse_key(bytes):
         return key_dict
 
     except struct_error:
-        logging.exception('Failed to parse key from __consumer_offsets topic message.'
-                          ' Key: %(key_bytes)s',
-                          {'key_bytes': bytes})
+        logging.warning('Failed to parse key from __consumer_offsets topic message.'
+                        ' Key: %(key_bytes)s',
+                        {'key_bytes': bytes},
+                        exc_info=True)
 
 
 def parse_value(bytes):
@@ -93,6 +94,7 @@ def parse_value(bytes):
         return value_dict
 
     except struct_error as e:
-        logging.exception('Failed to parse value from __consumer_offsets topic message.'
-                          ' Value: %(value_bytes)s',
-                          {'value_bytes': bytes})
+        logging.warning('Failed to parse value from __consumer_offsets topic message.'
+                        ' Value: %(value_bytes)s',
+                        {'value_bytes': bytes},
+                        exc_info=True)
