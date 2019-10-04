@@ -71,10 +71,10 @@ def main():
         help='Turn on json logging.')
     parser.add_argument(
         '--log-level', default='INFO', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
-        help='detail level to log. (default: INFO)')
+        help='Detail level to log. (default: INFO)')
     parser.add_argument(
         '-v', '--verbose', action='store_true',
-        help='turn on verbose (DEBUG) logging. Overrides --log-level.')
+        help='Turn on verbose (DEBUG) logging. Overrides --log-level.')
     args = parser.parse_args()
 
     log_handler = logging.StreamHandler()
@@ -150,7 +150,7 @@ def main():
                 commit_timestamps = collectors.get_commit_timestamps()
                 exporter_offsets = collectors.get_exporter_offsets()
 
-                # Commits store the offset a consumer should read from next, 
+                # Commits store the offset a consumer should read from next,
                 # so we need to add one to the current offset for semantic parity
                 exporter_partition = message.partition
                 exporter_offset = message.offset + 1

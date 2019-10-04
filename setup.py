@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='prometheus-kafka-consumer-group-exporter',
-    version='0.5.3',
+    version='0.5.4',
     description='Kafka consumer group Prometheus exporter',
     url='https://github.com/Braedon/prometheus-kafka-consumer-group-exporter',
     author='Braedon Vickers',
@@ -23,7 +23,10 @@ setup(
     keywords='monitoring prometheus exporter kafka consumer group',
     packages=find_packages(),
     install_requires=[
-        'kafka-python >= 1.3',
+        # kafka-python 1.4.5 included a number of bugs and a severe drop
+        # in consumer performance. 1.4.6 fixed the bugs, but the performance
+        # issues remained. 1.4.7 fixed the performance issues.
+        'kafka-python >= 1.3, != 1.4.5, != 1.4.6',
         'jog',
         'prometheus-client >= 0.6.0',
         'javaproperties'
