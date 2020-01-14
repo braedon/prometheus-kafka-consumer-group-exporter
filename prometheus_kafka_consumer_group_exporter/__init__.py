@@ -103,8 +103,10 @@ def main():
     for filename in args.consumer_config:
         with open(filename) as f:
             raw_config = javaproperties.load(f)
-            converted_config = {k.replace('.', '_'): v for k, v in raw_config.items()}
-            consumer_config.update(converted_config)
+            for k, v in raw_config.items():
+                if v in ['true', 'false']:
+                    v = True if v == 'true' else False
+                consumer_config[k.replace('.', '_')] = v
 
     if args.bootstrap_brokers:
         consumer_config['bootstrap_servers'] = args.bootstrap_brokers
