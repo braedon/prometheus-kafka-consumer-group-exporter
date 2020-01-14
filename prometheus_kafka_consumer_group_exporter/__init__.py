@@ -108,9 +108,9 @@ def main():
                     # Treat empty values as if they weren't set
                     continue
 
-                if v in ['true', 'false']:
+                if v.lower() in ['true', 'false']:
                     # Convert boolean values
-                    v = True if v == 'true' else False
+                    v = True if v.lower() == 'true' else False
 
                 else:
                     # Try and convert numeric values
