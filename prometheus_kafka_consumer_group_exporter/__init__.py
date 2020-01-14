@@ -104,6 +104,10 @@ def main():
         with open(filename) as f:
             raw_config = javaproperties.load(f)
             for k, v in raw_config.items():
+                if v == '':
+                    # Treat empty values as if they weren't set
+                    continue
+
                 if v in ['true', 'false']:
                     v = True if v == 'true' else False
                 consumer_config[k.replace('.', '_')] = v
