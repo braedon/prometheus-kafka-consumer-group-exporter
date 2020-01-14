@@ -109,7 +109,19 @@ def main():
                     continue
 
                 if v in ['true', 'false']:
+                    # Convert boolean values
                     v = True if v == 'true' else False
+
+                else:
+                    # Try and convert numeric values
+                    try:
+                        v = int(v)
+                    except ValueError:
+                        try:
+                            v = float(v)
+                        except ValueError:
+                            pass
+
                 consumer_config[k.replace('.', '_')] = v
 
     if args.bootstrap_brokers:
