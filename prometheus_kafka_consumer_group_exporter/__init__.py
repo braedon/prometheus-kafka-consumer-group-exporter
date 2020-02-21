@@ -163,6 +163,7 @@ def main():
 
     scheduled_jobs = setup_fetch_jobs(topic_interval, high_water_interval, low_water_interval, client)
     scheduler.run_scheduled_jobs(scheduled_jobs)
+    client.poll()
 
     try:
         while True:
@@ -237,11 +238,13 @@ def main():
                 # Check if we need to run any scheduled jobs
                 # each message.
                 scheduled_jobs = scheduler.run_scheduled_jobs(scheduled_jobs)
+                client.poll()
 
             # Also check if we need to run any scheduled jobs
             # each time the consumer times out, in case there
             # aren't any messages to consume.
             scheduled_jobs = scheduler.run_scheduled_jobs(scheduled_jobs)
+            client.poll()
 
     except KeyboardInterrupt:
         pass
