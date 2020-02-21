@@ -52,6 +52,10 @@ def fetch_topics(client, callback):
         logging.debug('Requesting topics and partition assignments from %(node)s',
                       {'node': node})
 
+        # Make sure we have a connection to this node.
+        if client.maybe_connect(node):
+            client.poll()
+
         api_version = 0 if client.config['api_version'] < (0, 10) else 1
         request = MetadataRequest[api_version](None)
         f = client.send(node, request)
@@ -93,6 +97,10 @@ def fetch_highwater(client, callback):
             for node, topic_map in nodes.items():
                 logging.debug('Requesting high-water marks from %(node)s',
                               {'topic': topic, 'node': node})
+
+                # Make sure we have a connection to this node.
+                if client.maybe_connect(node):
+                    client.poll()
 
                 request = OffsetRequest[0](
                     -1,
@@ -140,6 +148,10 @@ def fetch_lowwater(client, callback):
             for node, topic_map in nodes.items():
                 logging.debug('Requesting low-water marks from %(node)s',
                               {'topic': topic, 'node': node})
+
+                # Make sure we have a connection to this node.
+                if client.maybe_connect(node):
+                    client.poll()
 
                 request = OffsetRequest[0](
                     -1,
