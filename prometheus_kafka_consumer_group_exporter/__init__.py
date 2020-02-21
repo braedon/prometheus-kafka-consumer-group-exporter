@@ -6,6 +6,7 @@ import sys
 
 from jog import JogFormatter
 from kafka import KafkaConsumer
+from kafka.client_async import KafkaClient
 from prometheus_client import start_http_server
 from prometheus_client.core import REGISTRY
 
@@ -136,7 +137,10 @@ def main():
         '__consumer_offsets',
         **consumer_config
     )
-    client = consumer._client
+    client = KafkaClient(
+        wakeup_timeout_ms=20 * 1000,
+        **consumer.config
+    )
 
     topic_interval = args.topic_interval
     high_water_interval = args.high_water_interval
