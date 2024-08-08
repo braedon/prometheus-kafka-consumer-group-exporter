@@ -143,7 +143,7 @@ def main():
     low_water_interval = args.low_water_interval
 
     logging.info('Starting server...')
-    start_http_server(port)
+    start_http_server(port, '::')
     logging.info('Server started on port %s', port)
 
     REGISTRY.register(collectors.HighwaterCollector())
